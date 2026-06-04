@@ -1,0 +1,73 @@
+#include "USB"
+
+U0 USBMouseReportHandle(U8 *rpt, I64 len)
+{
+	I64 dx, dy, b, ps2[3];
+
+	if (len < 3)
+		return;
+	b = rpt[0];
+	if (rpt[1] & 0x80)
+		dx = rpt[1] - 256;
+	else
+		dx = rpt[1];
+	if (rpt[2] & 0x80)
+		dy = rpt[2] - 256;
+	else
+		dy = rpt[2];
+
+	ps2[0] = 0;
+	if (b & 1)
+		ps2[0] |= 1;
+	if (b & 2)
+		ps2[0] |= 2;
+	if (b & 4)
+		ps2[0] |= 4;
+	if (dx < 0)
+		ps2[0] |= 0x10;
+	if (dy < 0)
+		ps2[0] |= 0x20;
+	ps2[1] = dx;
+	ps2[2] = -dy;
+
+	mouse_hard.timestamp = TSCGet;
+	FifoU8Insert(mouse_hard.fifo2, ps2[0]);
+	FifoU8Insert(mouse_hard.fifo2, ps2[1]);
+	FifoU8Insert(mouse_hard.fifo2, ps2[2]);
+	mouse_hard.pkt_size = 3;
+}
+
+U0 USBMouseIntrSubmit()
+{
+	CXHCITrb trb;
+	U8 *buf;
+
+	if (!usb.ms_ring)
+		return;
+	buf = usb.ctrl_buf + 64;
+	MemSet(&trb, 0, sizeof(trb));
+	trb.param = XHCIPhys(buf);
+	trb.status = usb.ms_max_pkt << 16;
+	trb.control = XHCI_TRB_NORMAL << 10 | 1 << XHCI_TRB_IOC | 1 << XHCI_TRB_DIR_IN | usb.ms_slot << 24;
+	USBEpRingPost(&trb, usb.ms_ring, &usb.ms_ring_idx, &usb.ms_ring_cycle, usb.ms_ring_phys);
+	usb.ms_pending = TRUE;
+	XHCIDoorbell(usb.ms_slot);
+}
+
+U0 USBMouseEventHandle()
+{
+	U8 *buf;
+
+	if (!usb.ms_pending)
+		return;
+	if (!usb.xfer_done)
+		return;
+	if (!usb.ms_ring)
+		return;
+	buf = usb.ctrl_buf + 64;
+	if (usb.xfer_len)
+		USBMouseReportHandle(buf, usb.xfer_len);
+	usb.ms_pending = FALSE;
+	usb.xfer_done = FALSE;
+	USBMouseIntrSubmit;
+}

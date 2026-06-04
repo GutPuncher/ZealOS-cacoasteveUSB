@@ -207,14 +207,22 @@ U0 KMain()
 						"LBts(&sys_run_level, RLf_MP);");
 	};
 
+	// USB init is experimental. Load the driver code, but do not probe xHCI during boot.
+	sys_usb_input_active = 0;
 	"KbdMouseInit;\n";
 	KbdMouseInit;
 	"MouseInit;\n";
 	MouseInit;
-	"KbdInit;\n";
-	KbdInit;
-	"Spawn(&MouseHardDriverInstall);\n\n";
-	Spawn(&MouseHardDriverInstall);
+	if (!(sys_usb_input_active & USBIf_KEYBOARD))
+	{
+		"KbdInit;\n";
+		KbdInit;
+	}
+	if (!(sys_usb_input_active & USBIf_MOUSE))
+	{
+		"Spawn(&MouseHardDriverInstall);\n\n";
+		Spawn(&MouseHardDriverInstall);
+	}
 	"Spawn(&MouseRawWatcher,, \"MouseRawWatcher\");\n";
 	Spawn(&MouseRawWatcher,, "MouseRawWatcher");
 

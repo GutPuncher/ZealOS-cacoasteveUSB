@@ -1,0 +1,26 @@
+$WW,1$$FG,5$$TX+CX,"USB Input Boot Workarounds"$$FG$
+
+ZealOS can use native $FG,2$xHCI$FG$ USB keyboard and mouse drivers. Until those work on your machine, or if you need to develop without USB code, use these fallbacks.
+
+$FG,5$BIOS Legacy USB$FG$
+Enable "Legacy USB Support", "USB Keyboard/Mouse in Legacy Mode", or similar in firmware setup. The BIOS translates USB input into $FG,2$PS/2$FG$ for the i8042 controller ZealOS already supports.
+
+$FG,5$Real PS/2 Keyboard$FG$
+A PS/2 keyboard (not a passive USB adapter) works with the existing driver. USB-to-PS/2 passive adapters usually fail because they are not true protocol converters.
+
+$FG,5$QEMU Development$FG$
+Default QEMU PS/2 (no extra flags) matches the legacy ZealOS path:
+  qemu-system-x86_64 -cdrom ZealOS.iso
+
+For xHCI driver testing:
+  qemu-system-x86_64 -cdrom ZealOS.iso -device qemu-xhci -device usb-kbd -device usb-tablet
+
+$FG,5$Known Failure Modes$FG$
+* USB-only laptops with no i8042 — PS/2 fallback never works; native xHCI is required.
+* xHCI still owned by firmware — driver must reset the controller and wait for $FG,2$USBSTS.HCHalted$FG$ to clear.
+* AMD Ryzen boards — use explicit MMIO U32 access; avoid struct aliasing on device registers (see AHCI notes).
+
+$FG,5$Hotplug$FG$
+Plug keyboard and mouse before boot. Hotplug is not supported.
+
+See $LK,"USBInput",A="FI:::/Demo/USBInput.ZC"$ demo and $LK,"USBInit",A="MN:USBInit"$.

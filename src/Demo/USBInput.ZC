@@ -1,0 +1,53 @@
+// USB input debug demo. Lists xHCI controller and active USB input status.
+
+#define USBIf_KEYBOARD	1
+#define USBIf_MOUSE		2
+
+U0 USBInputRep()
+{
+	I64 bdf, class_code;
+
+	"\nUSB Input Status\n";
+	"usb_debug_stage: %d\n", usb_debug_stage;
+	"sys_usb_input_active: 0x%X\n", sys_usb_input_active;
+	if (sys_usb_input_active & USBIf_KEYBOARD)
+		"  Native USB keyboard active\n";
+	if (sys_usb_input_active & USBIf_MOUSE)
+		"  Native USB mouse active\n";
+	if (!sys_usb_input_active)
+		"  Using PS/2 fallback (or no input yet)\n";
+
+	class_code = PCIC_SERIAL << 16;
+	class_code = class_code | (PCISC_USB << 8);
+	class_code = class_code | PCIP_USB_XHCI;
+	bdf = PCIClassFind(class_code, 0);
+	if (bdf == -1)
+		"No xHCI controller found.\n";
+	else
+		"xHCI BDF: 0x%X\n", bdf;
+
+}
+
+U0 USBInput()
+{
+	I64 i;
+
+	"\nBefore USBInit:\n";
+	USBInputRep();
+	"\nInitializing native USB input...\n";
+	USBInit();
+	"\nAfter USBInit:\n";
+
+	USBInputRep();
+	"\nPolling USB/PS2 input for 10 seconds...\n";
+	for (i = 0; i < 1000; i++)
+	{
+		if (sys_usb_input_active)
+			USBEventPoll();
+		KbdMouseHandler(TRUE, TRUE);
+		Sleep(10);
+	}
+	"Done.\n";
+}
+
+USBInput();

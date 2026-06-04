@@ -493,11 +493,13 @@ U0 KbdMouseHandler(Bool poll_kbd, Bool poll_mouse)
 		Yield;
 		return;
 	}
+	if (sys_usb_input_active)
+		USBEventPoll;
 	if (kbd.reset)
 		KbdMouseReset;
 	else
 	{
-		if (poll_mouse && mouse_hard.installed && !mouse_hard.irqs_working)
+		if (poll_mouse && mouse_hard.installed && !mouse_hard.irqs_working && !(sys_usb_input_active & USBIf_MOUSE))
 		{
 			PUSHFD
 			CLI
@@ -506,7 +508,7 @@ U0 KbdMouseHandler(Bool poll_kbd, Bool poll_mouse)
 			POPFD
 		}
 
-		if (poll_kbd)
+		if (poll_kbd && !(sys_usb_input_active & USBIf_KEYBOARD))
 			while (InU8(KBD_CTRL) & 1)
 				KbdPacketRead;
 

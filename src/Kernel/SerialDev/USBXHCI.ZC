@@ -1,0 +1,457 @@
+#include "USB"
+
+CUSBStateGlobals usb;
+I64 sys_usb_input_active;
+I64 usb_debug_stage;
+
+U32 XHCICapRead(I64 off)
+{
+	return *(usb.xhci_base + off)(U32 *);
+}
+
+U32 XHCIOpRead(I64 off)
+{
+	return *(usb.xhci_base + usb.cap_length + off)(U32 *);
+}
+
+U0 XHCIOpWrite(I64 off, U32 val)
+{
+	*(usb.xhci_base + usb.cap_length + off)(U32 *) = val;
+}
+
+U32 XHCIRtRead(I64 off)
+{
+	return *(usb.xhci_base + usb.runtime_off + off)(U32 *);
+}
+
+U0 XHCIRtWrite(I64 off, U32 val)
+{
+	*(usb.xhci_base + usb.runtime_off + off)(U32 *) = val;
+}
+
+U32 XHCIPortRead(I64 port)
+{
+	return *(usb.xhci_base + usb.cap_length + XHCI_OP_PORTSC_BASE + port * 0x10)(U32 *);
+}
+
+U0 XHCIPortWrite(I64 port, U32 val)
+{
+	*(usb.xhci_base + usb.cap_length + XHCI_OP_PORTSC_BASE + port * 0x10)(U32 *) = val;
+}
+
+U0 XHCIDoorbell(I64 slot)
+{
+	*(usb.xhci_base + usb.cap_length + 0x1800 + slot * 4)(U32 *) = 1;
+}
+
+U64 XHCIPhys(U8 *virt)
+{
+	if (!virt)
+		return 0;
+	return virt - dev.uncached_alias;
+}
+
+U8 *XHCIAlloc(I64 size, I64 align, U64 *_phys=NULL)
+{
+	U8 *p;
+
+	p = MAllocAligned(size, align, Fs->code_heap) + dev.uncached_alias;
+	if (_phys)
+		*_phys = XHCIPhys(p);
+	MemSet(p, 0, size);
+	return p;
+}
+
+I64 XHCITrbType(U32 control)
+{
+	return (control >> 10) & 0x3F;
+}
+
+U0 XHCICmdRingDoorbell()
+{
+	XHCIOpWrite(XHCI_OP_CRCR, usb.cmd_ring_phys + usb.cmd_ring_idx * 16 | usb.cmd_ring_cycle);
+}
+
+U0 XHCICmdTrbPost(CXHCITrb *trb)
+{
+	MemCopy(usb.cmd_ring + usb.cmd_ring_idx * sizeof(CXHCITrb), trb, sizeof(CXHCITrb));
+	*(usb.cmd_ring + usb.cmd_ring_idx * sizeof(CXHCITrb) + offset(CXHCITrb.control))(U32 *) |= usb.cmd_ring_cycle;
+	usb.cmd_ring_idx++;
+	if (usb.cmd_ring_idx >= XHCI_RING_SIZE)
+	{
+		usb.cmd_ring_idx = 0;
+		usb.cmd_ring_cycle = !usb.cmd_ring_cycle;
+	}
+	XHCICmdRingDoorbell;
+}
+
+U0 XHCIErdpUpdate()
+{
+	XHCIRtWrite(0x18, usb.evt_ring_phys + usb.evt_ring_idx * 16 | usb.evt_ring_cycle);
+	XHCIRtWrite(0x1C, (usb.evt_ring_phys + usb.evt_ring_idx * 16) >> 32);
+}
+
+U0 XHCIEventAdvance()
+{
+	CXHCITrb *trb;
+	I64 type;
+
+	while (TRUE)
+	{
+		trb = (usb.evt_ring + usb.evt_ring_idx * sizeof(CXHCITrb))(CXHCITrb *);
+		if ((trb->control & 1) != usb.evt_ring_cycle)
+			break;
+		type = XHCITrbType(trb->control);
+		if (type == XHCI_TRB_EVT_CMD_COMP)
+		{
+			usb.cmd_comp_slot = trb->control >> 24;
+			usb.cmd_comp_code = (trb->status >> 24) & 0xFF;
+			usb.cmd_comp_done = TRUE;
+		}
+		else if (type == XHCI_TRB_EVT_TRANSFER)
+		{
+			usb.xfer_done = TRUE;
+			usb.xfer_len = trb->status & 0xFFFFFF;
+			usb.xfer_code = (trb->status >> 24) & 0xFF;
+		}
+		else if (type == XHCI_TRB_EVT_PORT_STS)
+			usb.port_event = TRUE;
+		trb->control &= ~1;
+		usb.evt_ring_idx++;
+		if (usb.evt_ring_idx >= XHCI_RING_SIZE)
+		{
+			usb.evt_ring_idx = 0;
+			usb.evt_ring_cycle = !usb.evt_ring_cycle;
+		}
+		XHCIErdpUpdate;
+	}
+}
+
+Bool XHCIEventWait(I64 timeout_ms)
+{
+	F64 deadline = tS + timeout_ms / 1000.0;
+
+	usb.cmd_comp_done = FALSE;
+	usb.xfer_done = FALSE;
+	while (tS < deadline)
+	{
+		XHCIEventAdvance;
+		if (usb.cmd_comp_done)
+			return TRUE;
+		if (usb.xfer_done)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+U0 XHCICmdNoop()
+{
+	CXHCITrb trb;
+
+	MemSet(&trb, 0, sizeof(trb));
+	trb.control = XHCI_TRB_CMD_NOOP << 10 | 1 << XHCI_TRB_IOC;
+	XHCICmdTrbPost(&trb);
+	XHCIEventWait(500);
+}
+
+Bool XHCIReset()
+{
+	I64 i;
+
+	XHCIOpWrite(XHCI_OP_USBCMD, 0);
+	Sleep(10);
+	XHCIOpWrite(XHCI_OP_USBCMD, 1 << XHCICMD_HCRST);
+	for (i = 0; i < 1000; i++)
+	{
+		if (!(XHCIOpRead(XHCI_OP_USBCMD) & 1 << XHCICMD_HCRST))
+			break;
+		Sleep(1);
+	}
+	for (i = 0; i < 1000; i++)
+	{
+		if (!(XHCIOpRead(XHCI_OP_USBSTS) & 1 << XHCISTS_CNR))
+			break;
+		Sleep(1);
+	}
+	return !(XHCIOpRead(XHCI_OP_USBSTS) & 1 << XHCISTS_CNR);
+}
+
+Bool XHCIRun()
+{
+	U32 cmd;
+
+	cmd = XHCIOpRead(XHCI_OP_USBCMD);
+	cmd |= 1 << XHCICMD_RUN;
+	cmd |= 1 << XHCISTS_EINT;
+	XHCIOpWrite(XHCI_OP_USBCMD, cmd);
+	Sleep(10);
+	return !(XHCIOpRead(XHCI_OP_USBSTS) & 1 << XHCISTS_HCH);
+}
+
+I64 XHCIPortFind()
+{
+	I64 i;
+	U32 ps;
+
+	for (i = 0; i < usb.max_ports; i++)
+	{
+		ps = XHCIPortRead(i);
+		if (ps & 1 << XHCIPORT_CCS)
+			return i;
+	}
+	return -1;
+}
+
+Bool XHCIPortReset(I64 port)
+{
+	U32 ps;
+	I64 i;
+
+	ps = XHCIPortRead(port);
+	ps |= 1 << XHCIPORT_PR;
+	XHCIPortWrite(port, ps);
+	for (i = 0; i < 500; i++)
+	{
+		ps = XHCIPortRead(port);
+		if (!(ps & 1 << XHCIPORT_PR))
+			break;
+		Sleep(2);
+	}
+	ps = XHCIPortRead(port);
+	ps |= 1 << XHCIPORT_PED;
+	XHCIPortWrite(port, ps);
+	Sleep(20);
+	return XHCIPortRead(port) & 1 << XHCIPORT_PED;
+}
+
+I64 XHCIEnableSlot()
+{
+	CXHCITrb trb;
+
+	MemSet(&trb, 0, sizeof(trb));
+	trb.control = XHCI_TRB_CMD_ENABLE_SLOT << 10 | 1 << XHCI_TRB_IOC;
+	usb.cmd_comp_slot = 0;
+	XHCICmdTrbPost(&trb);
+	if (!XHCIEventWait(1000))
+		return -1;
+	return usb.cmd_comp_slot;
+}
+
+U0 XHCIInputCtxInit(I64 slot, I64 port, I64 speed)
+{
+	U32 *ctx;
+
+	MemSet(usb.input_ctx, 0, XHCI_CTX_SIZE);
+	ctx = (usb.input_ctx)(U32 *);
+	ctx[0] = 3;
+	ctx[1] = 0;
+	ctx = (usb.input_ctx + usb.ctx_size)(U32 *);
+	ctx[0] = slot << 24 | speed << 20 | port << 16;
+	ctx[1] = port;
+	ctx[2] = 1 << 27;
+	ctx = (usb.input_ctx + usb.ctx_size * 2)(U32 *);
+	ctx[0] = 1 << 0 | 8 << 16;
+}
+
+Bool XHCIAddressDevice(I64 slot, I64 port, I64 speed)
+{
+	CXHCITrb trb;
+
+	XHCIInputCtxInit(slot, port, speed);
+	MemSet(&trb, 0, sizeof(trb));
+	trb.param = usb.input_ctx_phys;
+	trb.status = slot << 24;
+	trb.control = XHCI_TRB_CMD_ADDR_DEV << 10 | 1 << XHCI_TRB_IOC;
+	XHCICmdTrbPost(&trb);
+	return XHCIEventWait(1000);
+}
+
+interrupt U0 USBIRQ()
+{
+	CLD
+	XHCIEventAdvance;
+	USBKbdEventHandle;
+	USBMouseEventHandle;
+	*(dev.uncached_alias + LAPIC_EOI)(U32 *) = 0;
+}
+
+U0 XHCIInterruptsSetup()
+{
+	I64 irq, i;
+	U8 *da = dev.uncached_alias + IOAPIC_REG;
+	U32 *_d = dev.uncached_alias + IOAPIC_DATA;
+
+	if (!usb.active)
+		return;
+	irq = IntEntryAlloc;
+	IntEntrySet(irq, &USBIRQ);
+	for (i = 0; i < 4; i++)
+	{
+		*da = IOREDTAB + i * 2 + 1;
+		*_d = dev.mp_apic_ids[0] << 24;
+		*da = IOREDTAB + i * 2;
+		*_d = 0x4000 + irq + i;
+	}
+	usb.irq = irq;
+}
+
+U0 USBEventPoll()
+{
+	if (!usb.active)
+		return;
+	XHCIEventAdvance;
+	USBKbdEventHandle;
+	USBMouseEventHandle;
+}
+
+Bool XHCIControllerInit()
+{
+	I64 bdf, bar, cmd, class_code, hcc, hcs;
+	U32 *erst;
+
+	usb_debug_stage = 10;
+	class_code = PCIC_SERIAL << 16;
+	class_code = class_code | PCISC_USB << 8;
+	class_code = class_code | PCIP_USB_XHCI;
+	bdf = PCIClassFind(class_code, 0);
+	if (bdf == -1)
+		return FALSE;
+	usb_debug_stage = 11;
+
+	usb.bdf = bdf;
+	bar = PCIReadU32(bdf.u8[2], bdf.u8[1], bdf.u8[0], PCIR_BASE0) & ~0xF;
+	if (!bar)
+		return FALSE;
+	usb_debug_stage = 12;
+
+	cmd = PCIReadU16(bdf.u8[2], bdf.u8[1], bdf.u8[0], PCIR_COMMAND);
+	PCIWriteU16(bdf.u8[2], bdf.u8[1], bdf.u8[0], PCIR_COMMAND, cmd | 6);
+
+	usb.xhci_base = dev.uncached_alias + bar;
+	usb.cap_length = XHCICapRead(XHCI_CAP_CAPLENGTH) & 0xFF;
+	hcc = XHCICapRead(XHCI_CAP_HCCPARAMS1);
+	hcs = XHCICapRead(XHCI_CAP_HCSPARAMS1);
+	usb.runtime_off = usb.cap_length + (((hcc >> 16) & 0x3FF) << 2);
+	if (hcc & 4)
+		usb.ctx_size = 64;
+	else
+		usb.ctx_size = 32;
+	usb.max_ports = hcs >> 24;
+	usb.max_slots = hcs & 0xFF;
+
+	if (!XHCIReset)
+		return FALSE;
+	usb_debug_stage = 13;
+
+	usb.page_size = XHCIOpRead(XHCI_OP_PAGESIZE) << 12;
+	if (!usb.page_size)
+		usb.page_size = 4096;
+
+	usb.dcbaa = XHCIAlloc((usb.max_slots + 1) << 3, 64, &usb.dcbaa_phys);
+	usb.cmd_ring = XHCIAlloc(XHCI_RING_SIZE * 16, 64, &usb.cmd_ring_phys);
+	usb.evt_ring = XHCIAlloc(XHCI_RING_SIZE * 16, 64, &usb.evt_ring_phys);
+	usb.evt_erst = XHCIAlloc(16, 64, &usb.evt_erst_phys);
+	usb.dev_ctx = XHCIAlloc(XHCI_CTX_SIZE * (usb.max_slots + 1), 64, &usb.dev_ctx_phys);
+	usb.input_ctx = XHCIAlloc(XHCI_CTX_SIZE, 64, &usb.input_ctx_phys);
+	usb.ctrl_buf = XHCIAlloc(512, 64, &usb.ctrl_buf_phys);
+
+	usb.cmd_ring_cycle = 1;
+	usb.evt_ring_cycle = 1;
+
+	erst = (usb.evt_erst)(U32 *);
+	erst[0] = usb.evt_ring_phys;
+	erst[1] = XHCI_RING_SIZE;
+
+	XHCIOpWrite(XHCI_OP_DCBAAP, usb.dcbaa_phys);
+	XHCIOpWrite(XHCI_OP_DCBAAP + 4, usb.dcbaa_phys >> 32);
+	XHCIOpWrite(XHCI_OP_CONFIG, usb.max_slots);
+	XHCIOpWrite(XHCI_OP_CRCR, usb.cmd_ring_phys | 1);
+
+	XHCIRtWrite(0x00, usb.evt_erst_phys);
+	XHCIRtWrite(0x04, usb.evt_erst_phys >> 32);
+	XHCIRtWrite(0x08, 1);
+	XHCIErdpUpdate;
+
+	if (!XHCIRun)
+		return FALSE;
+	usb_debug_stage = 14;
+
+	XHCICmdNoop;
+	usb.active = TRUE;
+	usb_debug_stage = 20;
+	return TRUE;
+}
+
+U0 USBInit()
+{
+	I64 port, slot, speed, ps;
+
+	sys_usb_input_active = 0;
+	usb_debug_stage = 1;
+	"USBInit stage 1: entry\n";
+	MemSet(&usb, 0, sizeof(CUSBStateGlobals));
+
+	if (!XHCIControllerInit)
+	{
+		"USBInit failed: controller init, stage %d\n", usb_debug_stage;
+		return;
+	}
+	usb_debug_stage = 21;
+	"USBInit stage 21: controller ready\n";
+
+	port = XHCIPortFind;
+	if (port < 0)
+	{
+		usb_debug_stage = 22;
+		"USBInit failed: no connected port, stage %d\n", usb_debug_stage;
+		return;
+	}
+	usb_debug_stage = 23;
+	"USBInit stage 23: connected port %d\n", port;
+
+	if (!XHCIPortReset(port))
+	{
+		usb_debug_stage = 24;
+		"USBInit failed: port reset, stage %d\n", usb_debug_stage;
+		return;
+	}
+	usb_debug_stage = 25;
+	"USBInit stage 25: port reset ok\n";
+
+	ps = XHCIPortRead(port);
+	speed = (ps >> 10) & 0xF;
+	if (!speed)
+		speed = 3;
+
+	slot = XHCIEnableSlot;
+	if (slot <= 0)
+	{
+		usb_debug_stage = 26;
+		"USBInit failed: enable slot, stage %d\n", usb_debug_stage;
+		return;
+	}
+	usb_debug_stage = 27;
+	"USBInit stage 27: slot %d\n", slot;
+
+	*(usb.dcbaa + slot * sizeof(U64))(U64 *) = usb.dev_ctx_phys + slot * XHCI_CTX_SIZE;
+	if (!XHCIAddressDevice(slot, port + 1, speed))
+	{
+		usb_debug_stage = 28;
+		"USBInit failed: address device, stage %d\n", usb_debug_stage;
+		return;
+	}
+	usb_debug_stage = 29;
+	"USBInit stage 29: addressed\n";
+
+	USBEnumerateDevice(slot);
+	usb_debug_stage = 30;
+	"USBInit stage 30: enumerated active=0x%X\n", sys_usb_input_active;
+	XHCIInterruptsSetup;
+
+	if (sys_usb_input_active & USBIf_MOUSE)
+	{
+		mouse_hard.installed = TRUE;
+		mouse_hard.pkt_size = 3;
+		mouse_hard.enabled = TRUE;
+	}
+}

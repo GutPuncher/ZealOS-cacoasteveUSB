@@ -25,6 +25,8 @@ $FG,5$Unsupported Hardware$FG$
 
 * No sound cards.
 
-* No USB devices, except keyboard and mouse in legacy mode.  No, you can't use flash memory cards.
+* No USB mass storage or printers.
+
+* Native $FG,2$USB keyboard/mouse$FG$ via xHCI when available; $FG,2$PS/2$FG$ fallback otherwise.
 
 * No printers.

@@ -2666,10 +2666,15 @@ class CSMBIOSBatteryInfo
 //PCI class codes
 #define PCIC_STORAGE	0x1
 #define PCIC_NETWORK	0x2
+#define PCIC_SERIAL		0xC
 
 //PCI subclass codes
 #define PCISC_ETHERNET	0x0
 #define PCISC_AHCI		0x6
+#define PCISC_USB		0x3
+
+//PCI USB programming interfaces
+#define PCIP_USB_XHCI	0x30
 
 //PCI I/O ports
 #define PCI_ADDR	0xCF8

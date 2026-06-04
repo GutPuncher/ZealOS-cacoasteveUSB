@@ -1,0 +1,284 @@
+#include "USB"
+
+U32 *USBDevCtx(I64 slot, I64 dci)
+{
+	return (usb.dev_ctx + slot * XHCI_CTX_SIZE + dci * usb.ctx_size)(U32 *);
+}
+
+U32 *USBInCtx(I64 dci)
+{
+	return (usb.input_ctx + usb.ctx_size + dci * usb.ctx_size)(U32 *);
+}
+
+U0 USBEpRingPost(CXHCITrb *trb, U8 *ring, I64 *idx, I64 *cycle, U64 ring_phys)
+{
+	MemCopy(ring + *idx * sizeof(CXHCITrb), trb, sizeof(CXHCITrb));
+	*(ring + *idx * sizeof(CXHCITrb) + offset(CXHCITrb.control))(U32 *) |= *cycle;
+	(*idx)++;
+	if (*idx >= XHCI_RING_SIZE)
+	{
+		*idx = 0;
+		*cycle = !*cycle;
+	}
+}
+
+U0 USBEp0Doorbell(I64 slot)
+{
+	XHCIDoorbell(slot);
+}
+
+U0 USBEp0RingInit(I64 slot)
+{
+	U32 *ep0;
+
+	usb.ep0_ring = XHCIAlloc(XHCI_RING_SIZE * 16, 64, &usb.ep0_ring_phys);
+	usb.ep0_ring_idx = 0;
+	usb.ep0_ring_cycle = 1;
+	ep0 = USBDevCtx(slot, 1);
+	ep0[0] = 1 << 0 | 64 << 16;
+	ep0[2] = usb.ep0_ring_phys;
+	ep0[3] = usb.ep0_ring_phys >> 32;
+}
+
+U64 USBSetupPack(U8 req_type, U8 request, U16 value, U16 index, U16 len)
+{
+	U64 res = 0;
+	U8 *p = &res;
+
+	p[0] = req_type;
+	p[1] = request;
+	p[2] = value;
+	p[3] = value >> 8;
+	p[4] = index;
+	p[5] = index >> 8;
+	p[6] = len;
+	p[7] = len >> 8;
+	return res;
+}
+
+Bool USBControlTransfer(I64 slot, U8 req_type, U8 request, U16 value, U16 index, I64 len, U8 *buf)
+{
+	CXHCITrb trb;
+	Bool dir_in;
+
+	if (req_type & USB_DIR_IN)
+		dir_in = TRUE;
+	else
+		dir_in = FALSE;
+
+	MemSet(&trb, 0, sizeof(trb));
+	trb.param = USBSetupPack(req_type, request, value, index, len);
+	trb.status = 8 << 16;
+	trb.control = XHCI_TRB_SETUP << 10 | 1 << XHCI_TRB_IDT | slot << 24;
+	USBEpRingPost(&trb, usb.ep0_ring, &usb.ep0_ring_idx, &usb.ep0_ring_cycle, usb.ep0_ring_phys);
+
+	if (len)
+	{
+		MemSet(&trb, 0, sizeof(trb));
+		if (dir_in)
+		{
+			trb.param = XHCIPhys(buf);
+			trb.status = len << 16;
+			trb.control = XHCI_TRB_DATA << 10 | 1 << XHCI_TRB_IOC | 1 << XHCI_TRB_DIR_IN | slot << 24;
+		}
+		else
+		{
+			if (buf)
+				MemCopy(buf, usb.ctrl_buf, len);
+			trb.param = usb.ctrl_buf_phys;
+			trb.status = len << 16;
+			trb.control = XHCI_TRB_DATA << 10 | 1 << XHCI_TRB_IOC | slot << 24;
+		}
+		USBEpRingPost(&trb, usb.ep0_ring, &usb.ep0_ring_idx, &usb.ep0_ring_cycle, usb.ep0_ring_phys);
+	}
+
+	MemSet(&trb, 0, sizeof(trb));
+	trb.control = XHCI_TRB_STATUS << 10 | 1 << XHCI_TRB_IOC | slot << 24;
+	if (!dir_in)
+		trb.control |= 1 << XHCI_TRB_DIR_IN;
+	USBEpRingPost(&trb, usb.ep0_ring, &usb.ep0_ring_idx, &usb.ep0_ring_cycle, usb.ep0_ring_phys);
+
+	usb.xfer_done = FALSE;
+	USBEp0Doorbell(slot);
+	if (!XHCIEventWait(2000))
+		return FALSE;
+	if (usb.xfer_code == 1)
+		return TRUE;
+	if (usb.xfer_code == 0)
+		return TRUE;
+	return FALSE;
+}
+
+Bool USBSetConfiguration(I64 slot, I64 config_val)
+{
+	return USBControlTransfer(slot, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE,
+		USB_REQ_SET_CONFIGURATION, config_val, 0, 0, NULL);
+}
+
+Bool USBSetProtocol(I64 slot, I64 iface, I64 proto)
+{
+	return USBControlTransfer(slot, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
+		USB_REQ_SET_PROTOCOL, proto, iface, 0, NULL);
+}
+
+Bool USBGetDescriptor(I64 slot, U8 desc_type, U8 desc_index, I64 len, U8 *buf)
+{
+	return USBControlTransfer(slot, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE,
+		USB_REQ_GET_DESCRIPTOR, desc_type << 8 | desc_index, 0, len, buf);
+}
+
+U0 USBKbdIntrSubmit();
+U0 USBMouseIntrSubmit();
+
+Bool USBHidEndpointSetup(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, Bool is_kbd)
+{
+	CXHCITrb trb;
+	U32 *in_ctrl, *in_slot, *in_ep, *out_ep;
+	U8 *ring;
+	U64 ring_phys;
+
+	in_ctrl = (usb.input_ctx)(U32 *);
+	in_ctrl[0] = 1 << dci;
+	in_ctrl[1] = 0;
+	in_slot = USBInCtx(0);
+	in_slot[0] = USBDevCtx(slot, 0)[0];
+	in_slot[1] = USBDevCtx(slot, 0)[1];
+	in_slot[2] = USBDevCtx(slot, 0)[2];
+	in_ep = USBInCtx(dci);
+	in_ep[0] = 4 << 0 | max_pkt << 16 | 3 << 3;
+	in_ep[1] = 8 << 0;
+
+	ring = XHCIAlloc(XHCI_RING_SIZE * 16, 64, &ring_phys);
+	if (is_kbd)
+	{
+		usb.kbd_ring = ring;
+		usb.kbd_ring_phys = ring_phys;
+		usb.kbd_ring_idx = 0;
+		usb.kbd_ring_cycle = 1;
+		usb.kbd_slot = slot;
+		usb.kbd_ep = ep_addr;
+		usb.kbd_dci = dci;
+		usb.kbd_iface = iface;
+		usb.kbd_max_pkt = max_pkt;
+	}
+	else
+	{
+		usb.ms_ring = ring;
+		usb.ms_ring_phys = ring_phys;
+		usb.ms_ring_idx = 0;
+		usb.ms_ring_cycle = 1;
+		usb.ms_slot = slot;
+		usb.ms_ep = ep_addr;
+		usb.ms_dci = dci;
+		usb.ms_iface = iface;
+		usb.ms_max_pkt = max_pkt;
+	}
+	in_ep[2] = ring_phys;
+	in_ep[3] = ring_phys >> 32;
+
+	MemSet(&trb, 0, sizeof(trb));
+	trb.param = usb.input_ctx_phys;
+	trb.status = slot << 24;
+	trb.control = XHCI_TRB_CMD_CONF_EP << 10 | 1 << XHCI_TRB_IOC;
+	XHCICmdTrbPost(&trb);
+	if (!XHCIEventWait(2000))
+		return FALSE;
+
+	out_ep = USBDevCtx(slot, dci);
+	out_ep[0] = in_ep[0];
+	out_ep[1] = in_ep[1];
+	out_ep[2] = in_ep[2];
+	out_ep[3] = in_ep[3];
+
+	if (is_kbd)
+		USBKbdIntrSubmit;
+	else
+		USBMouseIntrSubmit;
+	return TRUE;
+}
+
+U0 USBParseConfigHid(I64 slot, U8 *cfg, I64 len)
+{
+	I64 i = 0, iface = -1, ep_addr, max_pkt, proto, dci;
+	U8 cls = 0, sub = 0, desc_len;
+
+	while (i < len)
+		{
+			desc_len = cfg[i];
+			if (!desc_len)
+				break;
+			if (i + desc_len > len)
+				break;
+			switch (cfg[i + 1])
+		{
+			case 4:
+				iface = cfg[i + 2];
+				cls = cfg[i + 5];
+				sub = cfg[i + 6];
+				proto = cfg[i + 7];
+				break;
+
+				case 5:
+					if (iface < 0)
+						break;
+					if (cls != USB_CLASS_HID)
+						break;
+					ep_addr = cfg[i + 2];
+					if ((cfg[i + 3] & 3) != 3)
+						break;
+					if (!(ep_addr & 0x80))
+						break;
+					max_pkt = cfg[i + 4] | (cfg[i + 5] << 8);
+					dci = (ep_addr & 0xF) * 2;
+					if (ep_addr & 0x80)
+						dci += 2;
+					else
+						dci++;
+					if (sub == USB_SUBCLASS_BOOT)
+					{
+						if (proto == USB_PROTO_KBD)
+						{
+							if (!(sys_usb_input_active & USBIf_KEYBOARD))
+							{
+								USBSetConfiguration(slot, 1);
+								USBSetProtocol(slot, iface, 0);
+								if (USBHidEndpointSetup(slot, iface, ep_addr, max_pkt, dci, TRUE))
+									sys_usb_input_active |= USBIf_KEYBOARD;
+							}
+						}
+						else if (proto == USB_PROTO_MOUSE)
+						{
+							if (!(sys_usb_input_active & USBIf_MOUSE))
+							{
+								USBSetConfiguration(slot, 1);
+								USBSetProtocol(slot, iface, 0);
+								if (USBHidEndpointSetup(slot, iface, ep_addr, max_pkt, dci, FALSE))
+									sys_usb_input_active |= USBIf_MOUSE;
+							}
+						}
+					}
+					break;
+			}
+		i += desc_len;
+	}
+}
+
+U0 USBEnumerateDevice(I64 slot)
+{
+	U8 *buf = usb.ctrl_buf;
+	I64 len;
+
+	usb.enum_slot = slot;
+	USBEp0RingInit(slot);
+
+	if (!USBGetDescriptor(slot, USB_DESC_DEVICE, 0, 18, buf))
+		return;
+	if (!USBGetDescriptor(slot, USB_DESC_CONFIG, 0, 9, buf))
+		return;
+	len = buf[2] | (buf[3] << 8);
+	if (len > 512)
+		len = 512;
+	if (!USBGetDescriptor(slot, USB_DESC_CONFIG, 0, len, buf))
+		return;
+	USBParseConfigHid(slot, buf, len);
+}
