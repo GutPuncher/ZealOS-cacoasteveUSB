@@ -1,8 +1,7 @@
 #!/bin/sh
-# Sync sources, enable UsbBootInit, and queue a normal-boot kernel rebuild.
-# Unlike AUTO_BOOT_INS, this waits until /Home/Once.ZC runs after normal boot.
+# Sync sources and queue a normal-boot kernel rebuild (needs mouse to reach desktop).
+# UsbBootOk is written by BootKernelFull after compile — not here.
 set -e
-export SET_USB_BOOT_OK=1
 export AUTO_NORMAL_REBUILD=1
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 exec "$SCRIPT_DIR/patch-utm-disk.sh"

@@ -326,6 +326,9 @@ verify_one "System/Utils/ToTXT.ZC"
 verify_one "Compiler/BackLib.ZC"
 verify_one "Kernel/SerialDev/USBControl.ZC"
 verify_one "Kernel/SerialDev/USBXHCI.ZC"
+verify_one "Kernel/SerialDev/MakeSerialDev.ZC"
+verify_one "Kernel/SerialDev/USBMouse.ZC"
+verify_one "Kernel/SerialDev/USBKbd.ZC"
 if [ -n "$SYNC_HOME_KEY_PLUGINS" ]; then
 	local_sum=$(shasum -a 256 "$SRC_DIR/HomeKeyPlugIns.ZC" | awk '{print $1}')
 	if ! mcopy -i "$RAW@@${PART1_OFF}" -n ::/Home/HomeKeyPlugIns.ZC "$TMPDIR/homekey-override-p1" 2>/dev/null; then
