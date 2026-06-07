@@ -351,7 +351,7 @@ I64 WinMgrSleep(Bool flush_messages = FALSE)
 		}
 		winmgr.updates++;
 		if (mouse_hard.install_attempts) //Don't call before boot mouse install attempt
-			KbdMouseHandler(FALSE, TRUE);
+			KbdMouseHandler(!(sys_usb_input_active & UK), TRUE);
 		SleepUntil(timeout_val);
 	}
 

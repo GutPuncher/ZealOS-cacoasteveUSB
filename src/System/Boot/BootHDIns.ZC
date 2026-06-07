@@ -1,6 +1,11 @@
 //See $LK,"Install Documentation",A="FI:::/Doc/Install.DD"$.
 //Study the account examples: $LK,"Config Strs",A="FL:::/Demo/AcctExample/TOS/TOSConfig.ZC,1"$, $LK,"Update Funs",A="FL:::/Demo/AcctExample/TOS/TOSDistro.ZC,1"$
 
+#exe {
+	Option(OPTf_WARN_PAREN, OFF);
+	Option(OPTf_WARN_DUP_TYPES, OFF);
+};
+
 #include "BootHD"
 
 #help_index "Install"
@@ -72,13 +77,80 @@ public U0 BootHDIns(U8 drv_let=0)
 				}
 				break;
 
-			default:
-				throw;
-		}
+		default:
+			throw;
 	}
+}
 	catch
 	{
 		PutExcept;
 		Beep;
 	}
+}
+
+public U0 BootHDInsAuto(U8 drv_let='C', I64 hd_port=0, I64 cd_port=1)
+{//Recompile/install kernel using the noninteractive kernel config.
+	no_warn hd_port, cd_port;
+	BootHDIns(drv_let);
+}
+
+public U0 BootHDInsAutoReboot(U8 drv_let='C', I64 hd_port=0, I64 cd_port=1)
+{
+	BootHDInsAuto(drv_let, hd_port, cd_port);
+	Reboot;
+}
+
+public U0 BootHDInsAutoKernelOnlyReboot(U8 drv_let='C', I64 hd_port=0, I64 cd_port=1)
+{
+	I64 errs;
+
+	Cd("C:/");
+	no_warn hd_port, cd_port;
+	FileWrite("C:/Home/BootInsStage.DD", "kernel", 6);
+	errs = Comp("/Kernel/Kernel", "Kernel",, ':');
+	if (errs)
+	{
+		FileWrite("C:/Home/BootInsErrs.DD", "errs", 4);
+		throw;
+	}
+
+	FileWrite("C:/Home/BootInsStage.DD", "copy", 4);
+	Del(BOOT_DIR_KERNEL_ZXE,, FALSE, FALSE);
+	if (!Copy("/Kernel/Kernel.ZXE", BOOT_DIR_KERNEL_ZXE))
+	{
+		FileWrite("C:/Home/BootInsErrs.DD", "copy", 4);
+		throw;
+	}
+
+	FileWrite("C:/Home/UsbBootOk.DD", "1", 1);
+	FileWrite("C:/Home/.usb_boot_ok", "1", 1);
+	FileWrite("C:/Home/BootInsStage.DD", "reboot", 6);
+	Reboot;
+}
+
+public U0 BootHDInsPendingReboot()
+{//Early boot rebuild path; use only when normal boot cannot reach /Home/Once.ZC.
+	FileWrite("C:/Home/BootInsPending.DD", "1", 1);
+	FileWrite("C:/Home/.boot_ins_pending", "1", 1);
+	Reboot;
+}
+
+public U0 NormalRebuildKernel()
+{//Mouse-only: reboot normally, then /Home/Once.ZC rebuilds after system server starts.
+	FileWrite("C:/Home/NormalRebuildKernel.DD", "1", 1);
+	FileWrite("C:/Home/.normal_rebuild_kernel", "1", 1);
+	Del("C:/Home/BootInsPending.DD",, FALSE, FALSE);
+	Del("C:/Home/.boot_ins_pending",, FALSE, FALSE);
+	Reboot;
+}
+
+public U0 RebuildKernel()
+{//Safe command name (do not type BootInsAuto - HolyC misparses that as BootIns.Auto).
+	NormalRebuildKernel;
+}
+
+public U0 UsbBootEnable()
+{//After BootHDInsAuto + Reboot, opt in to UsbBootInit each boot (see ::/Doc/USBBoot.DD).
+	FileWrite("C:/Home/UsbBootOk.DD", "1", 1);
+	FileWrite("C:/Home/.usb_boot_ok", "1", 1);
 }

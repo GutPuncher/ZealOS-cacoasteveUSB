@@ -1,0 +1,18 @@
+$WW,1$$FG,5$$TX+CX,"Rebuild Kernel"$$FG$
+
+$FG,2$Why rebuild?$FG$ USB driver code lives in $FG,2$Kernel/SerialDev/*.ZC$FG$ on disk, but the running system uses $FG,2$/Boot/Kernel.ZXE$FG$. Rebuild runs $FG,2$Comp("/Kernel/Kernel")$FG$ to bake USB keyboard/mouse into a new boot image.
+
+$FG,2$Mouse-only rebuild (this page)$FG$ queues an automatic compile on the next boot — no keyboard needed $FG,2$if compile succeeds$FG$. Expect: click → reboot → text-only compile boot (~20s) → second reboot → desktop.
+
+$FG,5$If compile fails$FG$ you should see red text and $FG,2$BootInsErrs.DD$FG$ on a text screen (not the wallpaper desktop). Force-quit VM and run $FG,2$REMOVE_BOOT_INS_PENDING=1 build/patch-utm-disk.sh$FG$ to escape the loop.
+
+$FG,5$Reliable rebuild (needs keyboard once)$FG$
+1. UTM: turn $FG,2$PS/2 keyboard On$FG$ for one boot (USB args unchanged).
+2. At $FG,2$C:/Home>$FG$ type: $FG,2$BootHDInsAuto;$FG$ then $FG,2$Reboot;$FG$
+3. Turn PS/2 off again; test USB-only input.
+
+$MA-X+PU+CX,"STEP 1 — auto rebuild next boot (click)",LM="RebuildKernel;\n"$$
+
+Do $FG,2$not$FG$ type $FG,2$BootInsAuto;$FG$ at the prompt. Click the red link above, not the filename in the listing.
+
+After a $FG,2$successful$FG$ rebuild + reboot, run $FG,2$UsbBootEnable;$FG$ if needed, then look for $FG,2$USB boot: active=0x3$FG$.

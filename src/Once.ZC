@@ -7,6 +7,57 @@
 
 //Delete the rest from this file.
 
+// Run UdRun; manually after BootHDInsAuto when you want native USB input.
+// Do not auto-init USB here - it steals RAM for kernel compiles and can trip the debugger.
+
+U0 NormalRebuildTask()
+{
+	while (!Bt(&sys_run_level, RLf_SYSTEM_SERVER))
+		Sleep(250);
+	Sleep(2000);
+	Cd("C:/Home");
+	"Normal boot kernel rebuild starting...\n";
+	ExeFile("C:/Home/BootKernelFull");
+}
+
+Cd("C:/Home");
+if (FileFind("C:/Home/UsbBootLast.DD"))
+{
+	"\n$$PURPLE$$USB boot last$$FG$$\n";
+	Type("C:/Home/UsbBootLast.DD");
+	"\n";
+}
+if (FileFind("NormalRebuildKernel.DD"))
+{
+	Del("NormalRebuildKernel.DD",, FALSE, FALSE);
+	Del(".normal_rebuild_kernel",, FALSE, FALSE);
+	Del("OnceRebuildKernel.DD",, FALSE, FALSE);
+	Del(".once_rebuild_kernel",, FALSE, FALSE);
+	"Kernel rebuild queued after normal boot finishes...\n";
+	NormalRebuildTask;
+}
+else if (FileFind(".normal_rebuild_kernel"))
+{
+	Del(".normal_rebuild_kernel",, FALSE, FALSE);
+	Del("OnceRebuildKernel.DD",, FALSE, FALSE);
+	Del(".once_rebuild_kernel",, FALSE, FALSE);
+	"Kernel rebuild queued after normal boot finishes...\n";
+	NormalRebuildTask;
+}
+else if (FileFind("OnceRebuildKernel.DD"))
+{
+	Del("OnceRebuildKernel.DD",, FALSE, FALSE);
+	Del(".once_rebuild_kernel",, FALSE, FALSE);
+	"Kernel rebuild queued after normal boot finishes...\n";
+	NormalRebuildTask;
+}
+else if (FileFind(".once_rebuild_kernel"))
+{
+	Del(".once_rebuild_kernel",, FALSE, FALSE);
+	"Kernel rebuild queued after normal boot finishes...\n";
+	NormalRebuildTask;
+}
+
 U0 Tmp()
 {
 	OnceExe;

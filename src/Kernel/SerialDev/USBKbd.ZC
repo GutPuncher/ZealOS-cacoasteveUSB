@@ -1,6 +1,4 @@
-#include "USB"
-
-I64 USBUsageToScanCode(U8 usage)
+I64 ScFromUsage(U8 usage)
 {
 	switch (usage)
 	{
@@ -57,7 +55,18 @@ I64 USBUsageToScanCode(U8 usage)
 		case 0x37: return 0x34; // .
 		case 0x38: return 0x35; // /
 		case 0x39: return SC_CAPS;
-		case 0x3A: return SC_F1 + (usage - 0x3A);
+		case 0x3A: return SC_F1;
+		case 0x3B: return SC_F2;
+		case 0x3C: return SC_F3;
+		case 0x3D: return SC_F4;
+		case 0x3E: return SC_F5;
+		case 0x3F: return SC_F6;
+		case 0x40: return SC_F7;
+		case 0x41: return SC_F8;
+		case 0x42: return SC_F9;
+		case 0x43: return SC_F10;
+		case 0x44: return SC_F11;
+		case 0x45: return SC_F12;
 		case 0x49: return SC_INS;
 		case 0x4A: return SC_HOME;
 		case 0x4B: return SC_PAGE_UP;
@@ -72,7 +81,7 @@ I64 USBUsageToScanCode(U8 usage)
 	return 0;
 }
 
-I64 USBModToScFlags(U8 mod)
+I64 ScfFromMod(U8 mod)
 {
 	I64 f = 0;
 
@@ -91,7 +100,7 @@ I64 USBModToScFlags(U8 mod)
 	return f;
 }
 
-U0 USBKbdScanInject(I64 sc, Bool key_up)
+U0 XhkScanInj(I64 sc, Bool key_up)
 {
 	if (!sc)
 		return;
@@ -103,16 +112,21 @@ U0 USBKbdScanInject(I64 sc, Bool key_up)
 	kbd.new_key_timestamp = kbd.timestamp;
 	FifoI64Ins(kbd.scan_code_fifo, kbd.scan_code);
 	kbd.count++;
-	if (!(sc & SCF_KEY_UP))
+	usb.kbd_inject_count++;
+	if (sc & SCF_KEY_UP)
+	{
+		Btr(kbd.down_bitmap, sc.u8[0]);
+		Btr(kbd.down_bitmap2, sc.u8[4]);
+	}
+	else
 	{
 		kbd.last_down_scan_code = sc;
 		Bts(kbd.down_bitmap, sc.u8[0]);
+		Bts(kbd.down_bitmap2, sc.u8[4]);
 	}
-	else
-		Btr(kbd.down_bitmap, sc.u8[0]);
 }
 
-Bool USBKbdUsagePresent(U8 usage, U8 *rpt)
+Bool XhkUsageIn(U8 usage, U8 *rpt)
 {
 	I64 i;
 
@@ -124,25 +138,116 @@ Bool USBKbdUsagePresent(U8 usage, U8 *rpt)
 	return FALSE;
 }
 
-U0 USBKbdReportHandle(U8 *rpt, I64 len)
+U0 XhkRptDbg(U8 *rpt, I64 len)
+{
+	I64 i;
+
+	usb.kbd_report_count++;
+	usb.kbd_last_len = len;
+	MemSet(usb.kbd_last_bytes, 0, 16);
+	i = 0;
+	while (i < len)
+	{
+		if (i >= 16)
+			break;
+		usb.kbd_last_bytes[i] = rpt[i];
+		i++;
+	}
+}
+
+Bool XhkRptNorm(U8 *dst, U8 *rpt, I64 len)
+{
+	I64 i, j;
+
+	MemSet(dst, 0, 8);
+	if (len >= 9)
+	{
+		if (rpt[0] >= 1)
+		{
+			if (rpt[0] <= 15)
+			{
+				MemCopy(dst, rpt + 1, 8);
+				return TRUE;
+			}
+		}
+	}
+	if (len >= 8)
+	{
+		MemCopy(dst, rpt, 8);
+		return TRUE;
+	}
+
+	// Conservative fallback for short/report-ID formats carrying usage bytes.
+	j = 2;
+	i = 0;
+	while (i < len)
+	{
+		if (j >= 8)
+			break;
+		if (ScFromUsage(rpt[i]))
+		{
+			dst[j] = rpt[i];
+			j++;
+		}
+		i++;
+	}
+	return j > 2;
+}
+
+U0 XhkModDiff(U8 mod, U8 last_mod)
+{
+	if ((mod & 1) && !(last_mod & 1))
+		XhkScanInj(SC_CTRL, FALSE);
+	if (!(mod & 1) && (last_mod & 1))
+		XhkScanInj(SC_CTRL | SCF_KEY_UP, TRUE);
+	if ((mod & 0x10) && !(last_mod & 0x10))
+		XhkScanInj(SC_CTRL | SCF_CTRL, FALSE);
+	if (!(mod & 0x10) && (last_mod & 0x10))
+		XhkScanInj(SC_CTRL | SCF_CTRL | SCF_KEY_UP, TRUE);
+
+	if ((mod & 2) && !(last_mod & 2))
+		XhkScanInj(SC_SHIFT, FALSE);
+	if (!(mod & 2) && (last_mod & 2))
+		XhkScanInj(SC_SHIFT | SCF_KEY_UP, TRUE);
+	if ((mod & 0x20) && !(last_mod & 0x20))
+		XhkScanInj(SC_SHIFT | SCF_SHIFT, FALSE);
+	if (!(mod & 0x20) && (last_mod & 0x20))
+		XhkScanInj(SC_SHIFT | SCF_SHIFT | SCF_KEY_UP, TRUE);
+
+	if ((mod & 4) && !(last_mod & 4))
+		XhkScanInj(SC_ALT, FALSE);
+	if (!(mod & 4) && (last_mod & 4))
+		XhkScanInj(SC_ALT | SCF_KEY_UP, TRUE);
+	if ((mod & 0x40) && !(last_mod & 0x40))
+		XhkScanInj(SC_ALT | SCF_ALT, FALSE);
+	if (!(mod & 0x40) && (last_mod & 0x40))
+		XhkScanInj(SC_ALT | SCF_ALT | SCF_KEY_UP, TRUE);
+}
+
+U0 XhkRptHandle(U8 *rpt, I64 len)
 {
 	I64 i, sc, flags;
-	U8 usage, mod;
+	U8 usage, mod, last_mod;
+	U8 norm[8];
 
-	if (len < 8)
+	XhkRptDbg(rpt, len);
+	if (!XhkRptNorm(norm, rpt, len))
 		return;
+	rpt = norm;
 	mod = rpt[0];
-	flags = USBModToScFlags(mod);
+	last_mod = usb.kbd_last_rpt[0];
+	XhkModDiff(mod, last_mod);
+	flags = ScfFromMod(mod);
 	for (i = 2; i < 8; i++)
 	{
 		usage = rpt[i];
 		if (usage)
 		{
-			if (!USBKbdUsagePresent(usage, usb.kbd_last_rpt))
+			if (!XhkUsageIn(usage, usb.kbd_last_rpt))
 			{
-				sc = USBUsageToScanCode(usage);
+				sc = ScFromUsage(usage);
 				if (sc)
-					USBKbdScanInject(sc | flags, FALSE);
+					XhkScanInj(sc | flags, FALSE);
 			}
 		}
 	}
@@ -151,43 +256,47 @@ U0 USBKbdReportHandle(U8 *rpt, I64 len)
 		usage = usb.kbd_last_rpt[i];
 		if (usage)
 		{
-			if (!USBKbdUsagePresent(usage, rpt))
+			if (!XhkUsageIn(usage, rpt))
 			{
-				sc = USBUsageToScanCode(usage);
+				sc = ScFromUsage(usage);
 				if (sc)
-					USBKbdScanInject(sc | flags, TRUE);
+					XhkScanInj(sc | flags, TRUE);
 			}
 		}
 	}
-	MemCopy(rpt, usb.kbd_last_rpt, 8);
+	MemCopy(usb.kbd_last_rpt, rpt, 8);
 }
 
-U0 USBKbdIntrSubmit()
-{
-	CXHCITrb trb;
 
-	if (!usb.kbd_ring)
-		return;
-	MemSet(&trb, 0, sizeof(trb));
-	trb.param = usb.ctrl_buf_phys;
-	trb.status = usb.kbd_max_pkt << 16;
-	trb.control = XHCI_TRB_NORMAL << 10 | 1 << XHCI_TRB_IOC | 1 << XHCI_TRB_DIR_IN | usb.kbd_slot << 24;
-	USBEpRingPost(&trb, usb.kbd_ring, &usb.kbd_ring_idx, &usb.kbd_ring_cycle, usb.kbd_ring_phys);
-	usb.kbd_pending = TRUE;
-	XHCIDoorbell(usb.kbd_slot);
-}
 
-U0 USBKbdEventHandle()
+U0 XhkEvtHandle()
 {
 	if (!usb.kbd_pending)
 		return;
-	if (!usb.xfer_done)
+	if (!usb.kbd_xfer_done)
 		return;
 	if (!usb.kbd_ring)
 		return;
-	if (usb.xfer_len)
-		USBKbdReportHandle(usb.ctrl_buf, usb.xfer_len);
+	if (usb.kbd_xfer_len)
+		XhkRptHandle(usb.ctrl_buf + udma_kbd, usb.kbd_xfer_len);
 	usb.kbd_pending = FALSE;
-	usb.xfer_done = FALSE;
-	USBKbdIntrSubmit;
+	usb.kbd_xfer_done = FALSE;
+	XhkIntrSub();
+}
+
+public U0 XhkWatchTask()
+{
+	I64 i, j;
+
+	for (i = 0; i < 90; i++)
+	{
+		"usbkbd %2d active=%X slot=%d dci=%d pend=%d sub=%d evt=%d rep=%d inj=%d len=%d code=%d kcnt=%d bytes=",
+			i, sys_usb_input_active, usb.kbd_slot, usb.kbd_dci, usb.kbd_pending,
+			usb.kbd_submit_count, usb.kbd_evt_count, usb.kbd_report_count,
+			usb.kbd_inject_count, usb.kbd_last_len, usb.kbd_last_code, kbd.count;
+		for (j = 0; j < 8; j++)
+			"%02X", usb.kbd_last_bytes[j];
+		"\n";
+		Sleep(1000);
+	}
 }

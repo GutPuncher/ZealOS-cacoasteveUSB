@@ -1,0 +1,69 @@
+public U0 BootKernelFullRebuild()
+{
+	I64 errs = -1, size, log_size;
+	U8 *st, *buf, *log;
+	CDoc *doc;
+
+	Cd("C:/");
+	Option(0, 1);
+	Del("C:/Home/BootInsErrs.DD",, FALSE, FALSE);
+	Del("C:/Home/BootCompileLog.DD",, FALSE, FALSE);
+	FileWrite("C:/Home/BootInsStage.DD", "compile", 7);
+	"BootKernelFull: compiling /Kernel/Kernel\n";
+	try
+	{
+		errs = Comp("C:/Kernel/Kernel", "Kernel",, ':');
+	}
+	catch
+	{
+		Fs->catch_except = TRUE;
+		errs = -1;
+	}
+	"BootKernelFull: Comp errs=%d\n", errs;
+
+	doc = DocPut;
+	if (doc)
+	{
+		log = DocSave(doc, &log_size);
+		if (log)
+		{
+			FileWrite("C:/Home/BootCompileLog.DD", log, log_size);
+			Free(log);
+		}
+	}
+
+	st = MStrPrint("errs=%d\nSee C:/Home/BootCompileLog.DD\n", errs);
+	FileWrite("C:/Home/BootInsErrs.DD", st, StrLen(st));
+	Free(st);
+	if (errs)
+	{
+		FileWrite("C:/Home/BootInsStage.DD", "fail", 4);
+		Cd("C:/Home");
+		return;
+	}
+
+	FileWrite("C:/Home/BootInsStage.DD", "copy", 4);
+	Del("/Boot/Kernel.ZXE",, FALSE, FALSE);
+	buf = FileRead("/Kernel/Kernel.ZXE", &size);
+	if (!buf)
+	{
+		FileWrite("C:/Home/BootInsStage.DD", "fail", 4);
+		FileWrite("C:/Home/BootInsErrs.DD", "read\n", 5);
+		throw;
+	}
+	if (!FileWrite("/Boot/Kernel.ZXE", buf, size))
+	{
+		Free(buf);
+		FileWrite("C:/Home/BootInsStage.DD", "fail", 4);
+		FileWrite("C:/Home/BootInsErrs.DD", "write\n", 6);
+		throw;
+	}
+	Free(buf);
+
+	FileWrite("C:/Home/UsbBootOk.DD", "1", 1);
+	FileWrite("C:/Home/.usb_boot_ok", "1", 1);
+	FileWrite("C:/Home/BootInsStage.DD", "reboot", 6);
+	Reboot;
+}
+
+BootKernelFullRebuild;

@@ -1,20 +1,6 @@
-#include "USB"
-
-U0 USBMouseReportHandle(U8 *rpt, I64 len)
+U0 XhmPktIns(I64 dx, I64 dy, I64 b)
 {
-	I64 dx, dy, b, ps2[3];
-
-	if (len < 3)
-		return;
-	b = rpt[0];
-	if (rpt[1] & 0x80)
-		dx = rpt[1] - 256;
-	else
-		dx = rpt[1];
-	if (rpt[2] & 0x80)
-		dy = rpt[2] - 256;
-	else
-		dy = rpt[2];
+	I64 ps2[3];
 
 	ps2[0] = 0;
 	if (b & 1)
@@ -24,11 +10,19 @@ U0 USBMouseReportHandle(U8 *rpt, I64 len)
 	if (b & 4)
 		ps2[0] |= 4;
 	if (dx < 0)
+	{
 		ps2[0] |= 0x10;
-	if (dy < 0)
+		ps2[1] = 256 + dx;
+	}
+	else
+		ps2[1] = dx;
+	if (dy > 0)
+	{
 		ps2[0] |= 0x20;
-	ps2[1] = dx;
-	ps2[2] = -dy;
+		ps2[2] = 256 - dy;
+	}
+	else
+		ps2[2] = -dy;
 
 	mouse_hard.timestamp = TSCGet;
 	FifoU8Insert(mouse_hard.fifo2, ps2[0]);
@@ -37,37 +31,159 @@ U0 USBMouseReportHandle(U8 *rpt, I64 len)
 	mouse_hard.pkt_size = 3;
 }
 
-U0 USBMouseIntrSubmit()
+U0 XhmRptHandle(U8 *rpt, I64 len)
 {
-	CXHCITrb trb;
-	U8 *buf;
+	I64 dx, dy, b, off, b_idx, x_idx, y_idx;
 
-	if (!usb.ms_ring)
+	if (len < 3)
 		return;
-	buf = usb.ctrl_buf + 64;
-	MemSet(&trb, 0, sizeof(trb));
-	trb.param = XHCIPhys(buf);
-	trb.status = usb.ms_max_pkt << 16;
-	trb.control = XHCI_TRB_NORMAL << 10 | 1 << XHCI_TRB_IOC | 1 << XHCI_TRB_DIR_IN | usb.ms_slot << 24;
-	USBEpRingPost(&trb, usb.ms_ring, &usb.ms_ring_idx, &usb.ms_ring_cycle, usb.ms_ring_phys);
-	usb.ms_pending = TRUE;
-	XHCIDoorbell(usb.ms_slot);
+
+	off = 0;
+	if (len >= 4)
+	{
+		if (rpt[0] >= 1)
+		{
+			if (rpt[0] <= 15)
+				off = 1;
+		}
+	}
+	b_idx = off;
+	x_idx = off + 1;
+	y_idx = off + 2;
+	if (len <= y_idx)
+		return;
+
+	// Boot report: [buttons][X][Y][wheel?]. Report-protocol prepends a report ID byte.
+	b = rpt[b_idx] & 7;
+	if (rpt[x_idx] & 0x80)
+		dx = rpt[x_idx] - 256;
+	else
+		dx = rpt[x_idx];
+	if (rpt[y_idx] & 0x80)
+		dy = rpt[y_idx] - 256;
+	else
+		dy = rpt[y_idx];
+
+	usb.ms_acc_x += dx;
+	usb.ms_acc_y += dy;
+	usb.ms_acc_b = b;
 }
 
-U0 USBMouseEventHandle()
+U0 XhmAccFlush()
+{
+	I64 dx, dy, b, ox, oy;
+
+	if (!(sys_usb_input_active & UM))
+		return;
+
+	PUSHFD
+	CLI
+	dx = usb.ms_acc_x;
+	dy = usb.ms_acc_y;
+	b = usb.ms_acc_b;
+	ox = dx;
+	oy = dy;
+	if (dx > 127)
+	{
+		usb.ms_acc_x = dx - 127;
+		dx = 127;
+	}
+	else if (dx < -127)
+	{
+		usb.ms_acc_x = dx + 127;
+		dx = -127;
+	}
+	else
+		usb.ms_acc_x = 0;
+	if (dy > 127)
+	{
+		usb.ms_acc_y = dy - 127;
+		dy = 127;
+	}
+	else if (dy < -127)
+	{
+		usb.ms_acc_y = dy + 127;
+		dy = -127;
+	}
+	else
+		usb.ms_acc_y = 0;
+	POPFD
+
+	if (!dx)
+	{
+		if (!dy)
+		{
+			if (b == usb.ms_last_btn)
+			{
+				if (!ox)
+				{
+					if (!oy)
+						return;
+				}
+			}
+		}
+	}
+	usb.ms_last_btn = b;
+	XhmPktIns(dx, dy, b);
+}
+
+
+
+U0 XhmEvtHandle()
 {
 	U8 *buf;
 
+	PUSHFD
+	CLI
 	if (!usb.ms_pending)
+	{
+		POPFD
 		return;
-	if (!usb.xfer_done)
+	}
+	if (!usb.ms_xfer_done)
+	{
+		POPFD
 		return;
+	}
 	if (!usb.ms_ring)
+	{
+		POPFD
 		return;
-	buf = usb.ctrl_buf + 64;
-	if (usb.xfer_len)
-		USBMouseReportHandle(buf, usb.xfer_len);
+	}
+	buf = usb.ctrl_buf + udma_ms;
+	if (usb.ms_xfer_len)
+		XhmRptHandle(buf, usb.ms_xfer_len);
 	usb.ms_pending = FALSE;
-	usb.xfer_done = FALSE;
-	USBMouseIntrSubmit;
+	usb.ms_xfer_done = FALSE;
+	POPFD
+	XhmIntrSub();
+}
+
+public U0 UsbPollEvt()
+{
+	static I64 poll_count = 0;
+
+	if (!usb.active)
+		return;
+	if (usb.irq)
+		return;
+	if (sys_usb_input_active & UK)
+	{
+		if (usb.kbd_ring && !usb.kbd_pending && !usb.kbd_xfer_done)
+			XhkIntrSub();
+	}
+	if (sys_usb_input_active & UM)
+	{
+		if (usb.ms_ring && !usb.ms_pending && !usb.ms_xfer_done)
+			XhmIntrSub();
+	}
+	XHCIEventAdvance(64);
+	XhkEvtHandle();
+	XhmEvtHandle();
+	poll_count++;
+	if (poll_count < 2000)
+	{
+		if (!(poll_count % 100))
+			UsbBootLastWrite;
+	}
 }

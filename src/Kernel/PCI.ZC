@@ -102,13 +102,9 @@ else bus, dev, fun.
 
 
 	if (sys_pci_services)
-	{
-		"(System has PCIBIOS)\n";
 		res = PCIBIOSClassFind(class_code, n);
-	}
 	else
 	{
-		"(System does not have PCIBIOS)\n";
 		for (b = 0; b < sys_pci_buses; b++)
 			for (d = 0; d < 32; d++)
 				for (f = 0; f < 8; f++)
@@ -138,7 +134,7 @@ Bool PCIBtr(U8 reg RDX *bit_field, I64 reg RBX bit)
 { // MOV-based Btr for use in PCI device memory-mapped IO areas.  See $LK+PU,"Btr()",A="FF:::/Kernel/KernelB.HH,Btr("$.
 	U64 reg R9 chunk_mod = bit & 31, chunk_bit = 1 << chunk_mod;
 	bit_field(U32 *) += bit / 32;
-	Bool reg R8 result = (*bit_field(U32 *) & chunk_bit) >> chunk_mod;
+	I64 reg R8 result = (*bit_field(U32 *) & chunk_bit) >> chunk_mod;
 
 	*bit_field(U32 *) &= ~chunk_bit;
 
@@ -149,7 +145,7 @@ Bool PCIBts(U8 reg RDX *bit_field, I64 reg RBX bit)
 { // MOV-based Bts for use in PCI device memory-mapped IO areas.  See $LK+PU,"Bts()",A="FF:::/Kernel/KernelB.HH,Bts("$.
 	U64 reg R9 chunk_mod = bit & 31, chunk_bit = 1 << chunk_mod;
 	bit_field(U32 *) += bit / 32;
-	Bool reg R8 result = (*bit_field(U32 *) & chunk_bit) >> chunk_mod;
+	I64 reg R8 result = (*bit_field(U32 *) & chunk_bit) >> chunk_mod;
 
 	*bit_field(U32 *) |= chunk_bit;
 

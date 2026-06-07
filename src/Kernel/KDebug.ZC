@@ -572,6 +572,74 @@ U0 G2(U8 *ip=INVALID_PTR, CTask *task=NULL)
 	G(ip, task);
 }
 
+U0 DebugTrapsClearTask(CTask *task)
+{
+	if (!task)
+		return;
+	task->rflags = RFLAGG_NORMAL;
+	LBtr(&task->task_flags, TASKf_DISABLE_BPTS);
+	B2(task);
+}
+
+U0 DebugTrapsClearTaskTree(CTask *task)
+{
+	CTask *t;
+
+	if (!TaskValidate(task))
+		return;
+	DebugTrapsClearTask(task);
+	t = task->next_child_task;
+	while (t != (&task->next_child_task)(U8 *) - offset(CTask.next_sibling_task))
+	{
+		DebugTrapsClearTaskTree(t);
+		t = t->next_sibling_task;
+	}
+}
+
+U0 DebugTrapsClearRing(CTask *start)
+{
+	CTask *t;
+
+	if (!start)
+		return;
+	PUSHFD
+	CLI
+	t = start;
+	do
+	{
+		DebugTrapsClearTaskTree(t);
+		t = t->next_task;
+	}
+	while (t != start);
+	POPFD
+	RFlagsSet(RFLAGG_NORMAL);
+}
+
+public U0 DebugTrapsClear()
+{//Clear single-step/breakpoints on all cores, winmgr, and focus task.
+	I64 i;
+
+	DebugMode(OFF);
+	RFlagsSet(RFLAGG_NORMAL);
+	for (i = 0; i < mp_count; i++)
+	{
+		DebugTrapsClearRing(cpu_structs[i].executive_task);
+		DebugTrapsClearTask(cpu_structs[i].idle_task);
+	}
+	if (sys_winmgr_task)
+		DebugTrapsClearRing(sys_winmgr_task);
+	DebugTrapsClearTask(ac.task);
+	DebugTrapsClearTask(sys_macro_task);
+	DebugTrapsClearTask(sys_focus_task);
+	DebugTrapsClearTask(Fs);
+}
+
+public U0 DebugGo()
+{//Clear traps on every task, then continue the focus shell task.
+	DebugTrapsClear;
+	G2;
+}
+
 public U0 S(U8 *ip=INVALID_PTR, CTask *task=NULL) //Single-step.
 {//Single step.
 	if (!task)
@@ -713,6 +781,13 @@ U0 Fault2(I64 fault_num, I64 fault_err_code)
 	Bool was_raw, was_single_user, was_silent, was_in_debug, was_mouse_enabled;
 	I64  i, old_raw_flags = text.raw_flags;
 
+	if (fault_num == I_SINGLE_STEP && sys_usb_suppress_single_step)
+	{
+		Fs->rflags = RFLAGG_NORMAL;
+		LBtr(&Fs->task_flags, TASKf_DISABLE_BPTS);
+		B2(Fs);
+		return;
+	}
 	was_single_user = SingleUser(ON);
 	if (!IsDebugMode)
 		debug.focus_task = sys_focus_task;

@@ -2676,6 +2676,10 @@ class CSMBIOSBatteryInfo
 //PCI USB programming interfaces
 #define PCIP_USB_XHCI	0x30
 
+// sys_usb_input_active bits (HolyC: avoid USBIn*, USBInit*, USBSet*, USBAct*, BootInsAuto, etc.)
+#define UK	1
+#define UM	2
+
 //PCI I/O ports
 #define PCI_ADDR	0xCF8
 #define PCI_DATA	0xCFC

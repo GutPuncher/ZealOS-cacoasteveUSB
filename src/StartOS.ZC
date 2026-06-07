@@ -11,11 +11,82 @@ Option(0,0); //(0,0)=EchoOff	 (0,1)=EchoOn
 #include "/Kernel/KernelC.HH"
 #include "/Compiler/CompilerB.HH"
 
-Option(OPTf_WARN_PAREN, ON);
-Option(OPTf_WARN_DUP_TYPES, ON);
+Option(OPTf_WARN_PAREN, OFF);
+Option(OPTf_WARN_DUP_TYPES, OFF);
+
+#exe {
+	Option(OPTf_WARN_PAREN, OFF);
+	Option(OPTf_WARN_DUP_TYPES, OFF);
+};
 HashTablePurge(sys_task->hash_table);
 
+U0 BootStatusType(U8 *filename)
+{
+	I64 size;
+	U8 *buf;
+
+	if (buf = FileRead(filename, &size))
+	{
+		"%s", buf;
+		Free(buf);
+	}
+}
+
+// Rebuild kernel before MakeSystem - loading System + WinMgr first exhausts RAM for Comp().
+// See ::/Doc/USBBoot.DD
+Cd("C:/Home");
+Del("C:/Home/BootAutoKernelConfig.DD",, FALSE, FALSE);
+I64 boot_ins_pending = FileFind("BootInsPending.DD");
+I64 usb_boot_ok = 0, usb_has_mouse;
+if (boot_ins_pending)
+{
+	Del("BootInsPending.DD",, FALSE, FALSE);
+	Del(".boot_ins_pending",, FALSE, FALSE);
+	Del("OnceRebuildKernel.DD",, FALSE, FALSE);
+	Del(".once_rebuild_kernel",, FALSE, FALSE);
+}
+else
+{
+	boot_ins_pending = FileFind(".boot_ins_pending");
+	if (boot_ins_pending)
+	{
+		Del(".boot_ins_pending",, FALSE, FALSE);
+		Del("OnceRebuildKernel.DD",, FALSE, FALSE);
+		Del(".once_rebuild_kernel",, FALSE, FALSE);
+	}
+}
+if (boot_ins_pending)
+{
+	"Rebuilding kernel (USB skipped this boot for RAM)...\n";
+	ExeFile("/Home/BootKernelOnly");
+	"\n$$RED$$Kernel rebuild did not finish.$$FG$$\n";
+	if (FileFind("C:/Home/BootInsErrs.DD"))
+	{
+		"BootInsErrs.DD:\n";
+		BootStatusType("C:/Home/BootInsErrs.DD");
+	}
+	if (FileFind("C:/Home/BootInsStage.DD"))
+	{
+		"BootInsStage.DD:\n";
+		BootStatusType("C:/Home/BootInsStage.DD");
+	}
+	"\nFix sources, patch disk, click Rebuild Kernel again.\n";
+	"\nOr force-quit VM and run REMOVE_BOOT_INS_PENDING=1 build/patch-utm-disk.sh\n";
+	while (TRUE)
+		Sleep(1000);
+}
+
 #include "/System/MakeSystem"
+
+#exe {
+	Option(OPTf_WARN_PAREN, OFF);
+	Option(OPTf_WARN_DUP_TYPES, OFF);
+};
+Option(OPTf_WARN_PAREN, OFF);
+Option(OPTf_WARN_DUP_TYPES, OFF);
+
+// Native USB after BootHDInsAuto (/Home/.usb_boot_ok). PS/2 fills anything USB misses.
+// See ::/Doc/USBBoot.DD
 
 //Debug("Type 'G;'");
 DocTermNew;
@@ -25,6 +96,23 @@ sys_winmgr_task = Spawn(&WinMgrTask, NULL, "Window Manager");
 Fs->win_inhibit = WIG_TASK_DEFAULT - WIF_SELF_BORDER - WIF_SELF_GRAB_SCROLL - WIF_SELF_CTRLS;
 LBts(&Fs->display_flags, DISPLAYf_CHILDREN_NOT_ON_TOP);
 LBts(&Fs->display_flags, DISPLAYf_SHOW);
+
+usb_boot_ok = FileFind("C:/Home/UsbBootOk.DD");
+if (usb_boot_ok == 0)
+	usb_boot_ok = FileFind("C:/Home/.usb_boot_ok");
+if (usb_boot_ok != 0)
+{
+	Silent;
+	UsbBootInit;
+	Silent(OFF);
+}
+if (!(sys_usb_input_active & UK))
+	KbdInit; // PS/2 keyboard; skip when native USB keyboard bound.
+usb_has_mouse = sys_usb_input_active & UM;
+if (!usb_has_mouse)
+	Spawn(&MouseHardDriverInstall);
+
+"USB boot: stage=%d active=0x%X\n", usb_debug_stage, sys_usb_input_active;
 RegInit;
 LBts(&sys_run_level, RLf_REGISTRY);
 
@@ -33,8 +121,10 @@ WallPaperInit;
 if (DriveIsWritable)
 	DirMake("/Tmp"); //Good to have a Tmp
 
-Option(OPTf_WARN_PAREN, OFF);
-Option(OPTf_WARN_DUP_TYPES, OFF);
+#exe {
+	Option(OPTf_WARN_PAREN, OFF);
+	Option(OPTf_WARN_DUP_TYPES, OFF);
+};
 LBts(&sys_run_level, RLf_HOME);
 
 #help_index ""

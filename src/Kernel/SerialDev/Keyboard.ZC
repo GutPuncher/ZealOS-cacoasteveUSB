@@ -539,6 +539,9 @@ I64 KbdMessagesQueue()
 {
 	I64		 arg1, arg2, message_code = MESSAGE_NULL;
 	CTask	*task_focus;
+
+	if (sys_usb_input_active && !usb.irq)
+		UsbPollEvt;
 	if (task_focus = sys_focus_task)
 	{
 		while (FifoI64Remove(kbd.scan_code_fifo, &arg2))

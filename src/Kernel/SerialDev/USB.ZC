@@ -1,11 +1,10 @@
 // USB / xHCI / HID constants and structures for ZealOS native input.
-
-#define USBIf_KEYBOARD	1
-#define USBIf_MOUSE		2
+// UK/UM defined in KernelA.HH.
 
 #define USB_REQ_GET_DESCRIPTOR	6
 #define USB_REQ_SET_ADDRESS		5
 #define USB_REQ_SET_CONFIGURATION	9
+#define USB_REQ_SET_IDLE		0x0A
 #define USB_REQ_SET_INTERFACE	11
 #define USB_REQ_SET_PROTOCOL	0x0B
 
@@ -19,6 +18,10 @@
 #define USB_PROTO_KBD		1
 #define USB_PROTO_MOUSE		2
 
+// DMA buffers live above EP0 workspace (config descriptors use up to 512 bytes).
+#define udma_ms		512
+#define udma_kbd		576
+
 #define USB_DIR_IN			0x80
 #define USB_DIR_OUT			0x00
 #define USB_TYPE_STANDARD	0x00
@@ -31,6 +34,16 @@
 #define XHCI_CAP_HCSPARAMS1	0x04
 #define XHCI_CAP_HCSPARAMS2	0x08
 #define XHCI_CAP_HCCPARAMS1	0x10
+#define XHCI_CAP_DBOFF		0x14
+#define XHCI_CAP_RTSOFF		0x18
+
+// Runtime register offsets (interrupter 0), from runtime base (RTSOFF)
+#define XHCI_RT_MFINDEX		0x00
+#define XHCI_RT_IMAN0		0x20
+#define XHCI_RT_IMOD0		0x24
+#define XHCI_RT_ERSTSZ0		0x28
+#define XHCI_RT_ERSTBA0		0x30
+#define XHCI_RT_ERDP0		0x38
 
 #define XHCI_OP_USBCMD		0x00
 #define XHCI_OP_USBSTS		0x04
@@ -43,9 +56,10 @@
 
 #define XHCICMD_RUN			0
 #define XHCICMD_HCRST		1
+#define XHCICMD_IE			2
 #define XHCISTS_HCH			0
 #define XHCISTS_CNR			11
-#define XHCISTS_EINT		2
+#define XHCISTS_EINT		3
 
 #define XHCIPORT_CCS		0
 #define XHCIPORT_PED		1
@@ -57,21 +71,33 @@
 #define XHCI_TRB_SETUP		2
 #define XHCI_TRB_DATA		3
 #define XHCI_TRB_STATUS		4
+#define XHCI_TRB_LINK		6
 #define XHCI_TRB_CMD_NOOP	8
 #define XHCI_TRB_CMD_ENABLE_SLOT	9
+#define XHCI_TRB_CMD_DISABLE_SLOT	10
 #define XHCI_TRB_CMD_ADDR_DEV		11
 #define XHCI_TRB_CMD_CONF_EP		12
+#define XHCI_TRB_CMD_EVAL_CONTEXT	13
+#define XHCI_TRB_CMD_SET_DEQ		16
 #define XHCI_TRB_EVT_TRANSFER		32
 #define XHCI_TRB_EVT_CMD_COMP		33
 #define XHCI_TRB_EVT_PORT_STS		34
 
+#define XHCI_CC_SUCCESS		1
+#define XHCI_CC_STALL		6
+#define XHCI_CC_SHORT_PACKET	13
+
 #define XHCI_TRB_IOC		5
 #define XHCI_TRB_IDT		6
 #define XHCI_TRB_DIR_IN		16
+#define XHCI_TRB_TRT_OUT	(2 << 16)
+#define XHCI_TRB_TRT_IN		(3 << 16)
 
 #define XHCI_RING_SIZE		64
+#define XHCI_RING_LINK_IDX	63
 #define XHCI_MAX_PACKET		64
 #define XHCI_CTX_SIZE		2048
+#define XHCI_INPUT_CTX_SIZE	4096
 
 class CXHCITrb
 {
@@ -86,6 +112,7 @@ public class CUSBStateGlobals
 	I64		 bdf;
 	I64		 cap_length;
 	I64		 runtime_off;
+	I64		 db_off;
 	I64		 ctx_size;
 	I64		 max_ports;
 	I64		 max_slots;
@@ -128,6 +155,13 @@ public class CUSBStateGlobals
 	I64		 kbd_max_pkt;
 	U8		 kbd_last_rpt[8];
 	Bool	 kbd_pending;
+	I64		 kbd_submit_count;
+	I64		 kbd_evt_count;
+	I64		 kbd_report_count;
+	I64		 kbd_inject_count;
+	I64		 kbd_last_len;
+	I64		 kbd_last_code;
+	U8		 kbd_last_bytes[16];
 
 	U8		*ms_ring;
 	U64		 ms_ring_phys;
@@ -138,7 +172,17 @@ public class CUSBStateGlobals
 	I64		 ms_dci;
 	I64		 ms_iface;
 	I64		 ms_max_pkt;
+	U64		 ms_buf_phys;
+	U64		 kbd_buf_phys;
 	Bool	 ms_pending;
+	I64		 ms_acc_x;
+	I64		 ms_acc_y;
+	I64		 ms_acc_b;
+	I64		 ms_last_btn;
+	Bool	 kbd_xfer_done;
+	Bool	 ms_xfer_done;
+	I64		 kbd_xfer_len;
+	I64		 ms_xfer_len;
 
 	Bool	 cmd_comp_done;
 	I64		 cmd_comp_slot;
@@ -149,21 +193,3 @@ public class CUSBStateGlobals
 	Bool	 port_event;
 	Bool	 active;
 };
-
-U0 USBKbdIntrSubmit();
-U0 USBMouseIntrSubmit();
-extern I64 usb_debug_stage;
-Bool XHCIEventWait(I64 timeout_ms);
-U0 XHCICmdTrbPost(CXHCITrb *trb);
-U0 XHCIDoorbell(I64 slot);
-U64 XHCIPhys(U8 *virt);
-U8 *XHCIAlloc(I64 size, I64 align, U64 *_phys=NULL);
-U0 USBEpRingPost(CXHCITrb *trb, U8 *ring, I64 *idx, I64 *cycle, U64 ring_phys);
-U0 USBKbdEventHandle();
-U0 USBMouseEventHandle();
-U0 USBEnumerateDevice(I64 slot);
-U0 USBInit();
-U0 USBEventPoll();
-U0 USBKbdReportHandle(U8 *rpt, I64 len);
-U0 USBMouseReportHandle(U8 *rpt, I64 len);
-U0 MouseHardHandler();

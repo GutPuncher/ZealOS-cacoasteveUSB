@@ -7,6 +7,7 @@ CDoc	*sys_clip_doc;
 
 CTask	*sys_task;
 I64		 sys_num_spawned_tasks;
+I64		 sys_usb_suppress_single_step;
 
 CTask	*sys_winmgr_task,
 		*sys_task_being_screen_updated;

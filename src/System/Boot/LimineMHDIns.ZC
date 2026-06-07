@@ -16,7 +16,7 @@ Bool LimineCFGMake(U8 drv_let)
 
 	DocPrint(doc,
 		"timeout: 2\n"
-		"interface_resolution: 1024x768\n\n");
+		"interface_resolution: 640x480\n\n");
 
 	"Searching drives for Limine bootloader files ...\n";
 	for (i = 0, drive = blkdev.drvs; i < DRIVES_NUM; i++, drive++)
@@ -33,7 +33,7 @@ Bool LimineCFGMake(U8 drv_let)
 			{
 				st = MStrPrint("/ZealOS %C:/\n"
 					"protocol: limine\n"
-					"resolution: 1024x768\n"
+					"resolution: 640x480\n"
 					"path: boot(%d):/Boot/ZealBooter.ELF\n"
 					"module_path: boot(%d):/Boot/Kernel.ZXE\n"
 					"\n", drv_let, drive->prt_num + 1, drive->prt_num + 1);

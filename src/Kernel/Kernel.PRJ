@@ -3,11 +3,17 @@
 
 #exe {
 	Cd(__DIR__);;
-	Option(OPTf_WARN_PAREN,		ON);
-	Option(OPTf_WARN_DUP_TYPES, ON);
+	Option(OPTf_WARN_PAREN,		OFF);
+	Option(OPTf_WARN_DUP_TYPES, OFF);
+	Option(OPTf_WARN_UNUSED_VAR, OFF);
+	Option(OPTf_NO_REG_VAR, ON);
 	#include "KConfig"
 	CKConfig *kernel_config;
-	kernel_config = KConfigNew;
+	kernel_config = CAlloc(sizeof(CKConfig));
+	kernel_config->home_dir = StrNew("::/Home");
+	kernel_config->disk_cache_size_exp = StrNew("Scale2Mem(0x80000,0x8000000)");
+	kernel_config->boot_drive_let = 'C';
+	kernel_config->opts[CONFIG_MOUNT_AHCI_AUTO] = TRUE;
 };
 
 #include "KernelA.HH"
@@ -58,5 +64,3 @@
 #include "FunSeg"
 #include "SMBIOS"
 #include "KMain"
-
-#exe {KConfigDel(kernel_config);};
