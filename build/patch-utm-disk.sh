@@ -237,7 +237,7 @@ remove_usb_boot_ok "$PART2_OFF" "2"
 set_usb_boot_ok() {
 	off=$1
 	label=$2
-	if [ -n "$SET_USB_BOOT_OK" ]; then
+	if [ -n "$SET_USB_BOOT_OK" ] && [ -z "$AUTO_NORMAL_REBUILD" ]; then
 		echo "Creating ::/Home/UsbBootOk.DD on partition $label (StartOS will run UsbBootInit)..."
 		printf '1' | mcopy -o -i "$RAW@@${off}" - ::/Home/UsbBootOk.DD
 		printf '1' | mcopy -o -i "$RAW@@${off}" - ::/Home/.usb_boot_ok

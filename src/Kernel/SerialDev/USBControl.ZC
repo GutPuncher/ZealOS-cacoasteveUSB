@@ -270,22 +270,10 @@ U0 XhkIntrSub()
 	CXHCITrb trb;
 
 	usb.kbd_submit_count++;
-	usb.kbd_last_code = 100;
 	if (!usb.kbd_ring)
-	{
-		if (usb.kbd_ring_phys)
-			usb.kbd_ring = usb.kbd_ring_phys;
-	}
-	if (!usb.kbd_ring)
-	{
-		usb.kbd_last_code = 101;
 		return;
-	}
 	if (usb.kbd_pending)
-	{
-		usb.kbd_last_code = 102;
 		return;
-	}
 	MemSet(usb.ctrl_buf + udma_kbd, 0, usb.kbd_max_pkt);
 	MemSet(&trb, 0, sizeof(trb));
 	trb.param = usb.kbd_buf_phys;
@@ -294,7 +282,6 @@ U0 XhkIntrSub()
 	trb.control |= 1 << XHCI_TRB_IOC;
 	EpRingPost(&trb, usb.kbd_ring, &usb.kbd_ring_idx, &usb.kbd_ring_cycle, usb.kbd_ring_phys);
 	usb.kbd_pending = TRUE;
-	usb.kbd_last_code = 103;
 	XHCIDoorbell(usb.kbd_slot, usb.kbd_dci);
 }
 
@@ -303,22 +290,10 @@ U0 XhmIntrSub()
 	CXHCITrb trb;
 	U8 *buf;
 
-	usb.ms_last_btn = 100;
 	if (!usb.ms_ring)
-	{
-		if (usb.ms_ring_phys)
-			usb.ms_ring = usb.ms_ring_phys;
-	}
-	if (!usb.ms_ring)
-	{
-		usb.ms_last_btn = 101;
 		return;
-	}
 	if (usb.ms_pending)
-	{
-		usb.ms_last_btn = 102;
 		return;
-	}
 	buf = usb.ctrl_buf + udma_ms;
 	if (usb.ms_max_pkt)
 		MemSet(buf, 0, usb.ms_max_pkt);
@@ -333,7 +308,6 @@ U0 XhmIntrSub()
 	trb.control |= 1 << XHCI_TRB_IOC;
 	EpRingPost(&trb, usb.ms_ring, &usb.ms_ring_idx, &usb.ms_ring_cycle, usb.ms_ring_phys);
 	usb.ms_pending = TRUE;
-	usb.ms_last_btn = 103;
 	XHCIDoorbell(usb.ms_slot, usb.ms_dci);
 }
 
@@ -501,14 +475,24 @@ Bool HidDevBind(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, I64 inte
 		if (sys_usb_input_active & UM)
 			return FALSE;
 		usb_debug_stage = 32;
+		usb.ms_abs = FALSE;
+		if (max_pkt >= 5)
+			usb.ms_abs = TRUE;
 		if (is_boot)
-		{
 			UcProto(slot, iface, 0);
-		}
 		if (HidEpSetup(slot, iface, ep_addr, max_pkt, dci, FALSE, interval, port_speed))
 		{
 			sys_usb_input_active |= UM;
 			return TRUE;
+		}
+		if (is_boot)
+		{
+			UcProto(slot, iface, 1);
+			if (HidEpSetup(slot, iface, ep_addr, max_pkt, dci, FALSE, interval, port_speed))
+			{
+				sys_usb_input_active |= UM;
+				return TRUE;
+			}
 		}
 		usb_debug_stage = 33;
 	}
@@ -884,7 +868,8 @@ U0 UsbCoreInit()
 	if (sys_usb_input_active & UM)
 	{
 		mouse_hard.installed = TRUE;
-		mouse_hard.pkt_size = 3;
+		mouse_hard.pkt_size = 4;
+		mouse_hard.has_wheel = TRUE;
 		mouse_hard.enabled = TRUE;
 		mouse_hard.irqs_working = FALSE;
 		OutU8(PIC_2_DATA, InU8(PIC_2_DATA) | 0x10);
@@ -935,7 +920,7 @@ U0 UsbBootLastWrite()
 
 	st = MStrPrint("stage=%d active=0x%X cfg_len=%d iface_cls=%d ep0_mps=%d ep0_state=%d xfer_code=%d cmd_code=%d port=%d port_idx=%d speed=%d addr_code=%d deq_code=%d\n"
 				   "kbd slot=%d dci=%d iface=%d ep=0x%X max=%d ring=0x%X phys=0x%X pend=%d sub=%d evt=%d rep=%d inj=%d len=%d code=%d fifo=%d kcnt=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
-				   "mouse slot=%d dci=%d iface=%d ep=0x%X max=%d ring=0x%X phys=0x%X pend=%d done=%d len=%d acc=(%d,%d,%d)\n",
+				   "mouse slot=%d dci=%d iface=%d ep=0x%X max=%d abs=%d ring=0x%X phys=0x%X pend=%d done=%d code=%d len=%d acc=(%d,%d,%d) bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n",
 				   usb_debug_stage, sys_usb_input_active, usb_debug_cfg_len, usb_debug_iface_cls,
 				   usb_debug_ep0_mps, usb_debug_ep0_state, usb_debug_xfer_code, usb_debug_cmd_code,
 				   usb_debug_root_port, usb_debug_port_idx, usb_debug_port_speed, usb_debug_addr_code, usb_debug_deq_code,
@@ -944,8 +929,10 @@ U0 UsbBootLastWrite()
 				   usb.kbd_last_len, usb.kbd_last_code, FifoI64Count(kbd.scan_code_fifo), kbd.count,
 				   usb.kbd_last_bytes[0], usb.kbd_last_bytes[1], usb.kbd_last_bytes[2], usb.kbd_last_bytes[3],
 				   usb.kbd_last_bytes[4], usb.kbd_last_bytes[5], usb.kbd_last_bytes[6], usb.kbd_last_bytes[7],
-				   usb.ms_slot, usb.ms_dci, usb.ms_iface, usb.ms_ep, usb.ms_max_pkt, usb.ms_ring, usb.ms_ring_phys, usb.ms_pending,
-				   usb.ms_xfer_done, usb.ms_xfer_len, usb.ms_acc_x, usb.ms_acc_y, usb.ms_acc_b);
+				   usb.ms_slot, usb.ms_dci, usb.ms_iface, usb.ms_ep, usb.ms_max_pkt, usb.ms_abs, usb.ms_ring, usb.ms_ring_phys, usb.ms_pending,
+				   usb.ms_xfer_done, usb.ms_xfer_code, usb.ms_xfer_len, usb.ms_acc_x, usb.ms_acc_y, usb.ms_acc_b,
+				   usb.ms_last_bytes[0], usb.ms_last_bytes[1], usb.ms_last_bytes[2], usb.ms_last_bytes[3],
+				   usb.ms_last_bytes[4], usb.ms_last_bytes[5], usb.ms_last_bytes[6], usb.ms_last_bytes[7]);
 	FileWrite("C:/Home/UsbBootLast.DD", st, StrLen(st));
 	Free(st);
 }

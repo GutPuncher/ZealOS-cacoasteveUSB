@@ -2,9 +2,9 @@
 #include "USB"
 #include "USBXHCI"
 #include "USBControl"
+#include "Keyboard"
 #include "USBKbd"
 #include "USBMouse"
-#include "Keyboard"
 #include "Mouse"
 #include "Message"
 #exe {Cd("..");};

@@ -40,8 +40,9 @@ $FG,5$UTM / QEMU$FG$
 * Recommended: $FG,2$qemu-xhci$FG$ + $FG,2$usb-kbd$FG$ + $FG,2$usb-mouse$FG$ (not $FG,2$usb-tablet$FG$ — relative mouse only).
 
 $FG,5$Known Failure Modes$FG$
-* $FG,2$UsbBootInit$FG$ uses poll mode (no IOAPIC remap at boot). $FG,2$UdRun;$FG$ may call $FG,2$UsbIntrEnable$FG$ for IRQ testing — only one PCI INTx pin is routed, not all four.
-* Garbled menus / dead keyboard after boot — usually IOAPIC entries 0–3 were hijacked; update and $FG,2$BootHDInsAuto; Reboot;$FG$.
+* $FG,2$UsbBootInit$FG$ uses poll mode (no IOAPIC remap at boot). $FG,2$UdRun;$FG$ may call $FG,2$UsbIntrEnable$FG$ for IRQ testing — routes the PCI $FG,2$interrupt line$FG$ (GSI), not INTA..D pin index 0–3.
+* Garbled menus / dead keyboard after boot — usually IOAPIC entries were hijacked by old USB IRQ code; update and $FG,2$BootHDInsAuto; Reboot;$FG$.
+* $FG,2$SET_USB_BOOT_OK$FG$ with $FG,2$AUTO_NORMAL_REBUILD$FG$ is unsafe on an old $FG,2$Kernel.ZXE$FG$ — let $FG,2$BootKernelFull$FG$ write $FG,2$UsbBootOk$FG$ after compile.
 * USB-only laptops with no i8042 — PS/2 fallback never works; native xHCI is required.
 * xHCI still owned by firmware — driver must reset the controller and wait for $FG,2$USBSTS.HCHalted$FG$ to clear.
 * AMD Ryzen boards — use explicit MMIO U32 access; avoid struct aliasing on device registers (see AHCI notes).

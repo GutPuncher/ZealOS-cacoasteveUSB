@@ -61,7 +61,7 @@ mkdir -p "$TMPMOUNT"
 mkdir -p "$TMPISODIR"
 
 echo "Building ZealBooter..."
-make -C ../zealbooter distclean all || ( echo "ERROR: ZealBooter build failed !" && false )
+make -C ../zealbooter TOOLCHAIN=llvm distclean all || ( echo "ERROR: ZealBooter build failed !" && false )
 
 echo "Making temp vdisk, running auto-install ..."
 "$QEMU_BIN_PATH/qemu-img" create -f raw "$TMPDISK" 1024M

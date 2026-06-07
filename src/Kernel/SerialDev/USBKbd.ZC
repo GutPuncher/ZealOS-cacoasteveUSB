@@ -100,17 +100,91 @@ I64 ScfFromMod(U8 mod)
 	return f;
 }
 
-U0 XhkScanInj(I64 sc, Bool key_up)
+U0 XhkScanInj(I64 sc_in, Bool key_up)
 {
-	if (!sc)
+	I64 sc, sc_raw, sc_flags, sc_byte, new_key_f, ch;
+	Bool set_leds = FALSE;
+
+	if (!sc_in)
 		return;
+	sc_byte = sc_in & 0xFF;
 	if (key_up)
-		sc |= SCF_KEY_UP;
-	sc |= SCF_NEW_KEY;
+		sc_byte |= SCF_KEY_UP;
+	sc_flags = kbd.scan_code.u32[0] & ~0x1FF;
+	sc_raw = sc_byte & ~SCF_KEY_UP;
+	new_key_f = SCF_NEW_KEY;
+	if (sc_byte & SCF_KEY_UP)
+		switch (sc_byte & ~SCF_KEY_UP)
+		{
+			case SC_SHIFT:	sc_flags &= ~SCF_SHIFT;					break;
+			case SC_CTRL: 	sc_flags &= ~SCF_CTRL;					break;
+			case SC_ALT:	sc_flags &= ~SCF_ALT;					break;
+			case SC_DELETE: sc_flags &= ~SCF_DELETE;				break;
+			case SC_INS:	sc_flags &= ~SCF_INS;					break;
+			case SC_CAPS: 	sc_flags ^= SCF_CAPS;	set_leds=TRUE;	break;
+			case SC_NUM:	sc_flags ^= SCF_NUM;	set_leds=TRUE;	break;
+			case SC_SCROLL: sc_flags ^= SCF_SCROLL;	set_leds=TRUE;	break;
+		}
+	else
+		switch (sc_byte)
+		{
+			case SC_SHIFT:
+				if (Bts(&sc_flags, SCf_SHIFT))
+					new_key_f = 0;
+				break;
+
+			case SC_CTRL:
+				if (Bts(&sc_flags, SCf_CTRL))
+					new_key_f = 0;
+				break;
+
+			case SC_ALT:
+				if (Bts(&sc_flags, SCf_ALT))
+					new_key_f = 0;
+				break;
+
+			case SC_DELETE:
+				sc_flags |= SCF_DELETE;
+				break;
+
+			case SC_INS:
+				sc_flags |= SCF_INS;
+				break;
+		}
+
+	if (!new_key_f)
+		return;
+	sc_flags |= new_key_f;
+	sc = sc_flags | sc_byte | (sc_flags | sc_raw) << 32;
+	if (sc_flags & SCF_CTRL && sc_flags & SCF_ALT)
+	{
+		if (!(sc & SCF_KEY_UP))
+		{
+			if ((sc & 255) == SC_DELETE && !(sc_flags & SCF_SHIFT))
+				CtrlAltDel(sc);
+			else
+			{
+				if (ch = ScanCode2Char(sc & 255))
+				if ('a' <= ch <= 'z')
+				{
+					sc &= ~(SCF_NEW_KEY | SCF_NEW_KEY << 32);
+					ch -= 'a';
+					kbd.last_down_scan_code = sc;
+					if (keydev.fp_ctrl_alt_cbs[ch] &&
+							!Bt(&keydev.ctrl_alt_in_irq_flags, ch) &&
+							((!(sc_flags & SCF_SHIFT) && keydev.ctrl_alt_no_shift_descs[ch]) ||
+							(sc_flags & SCF_SHIFT && keydev.ctrl_alt_shift_descs[ch])))
+						(*keydev.fp_ctrl_alt_cbs[ch])(sc);
+				}
+			}
+		}
+	}
+	if (set_leds)
+		KbdLEDsSet(sc);
 	kbd.timestamp = TSCGet;
 	kbd.scan_code = sc;
 	kbd.new_key_timestamp = kbd.timestamp;
-	FifoI64Ins(kbd.scan_code_fifo, kbd.scan_code);
+	FifoI64Ins(kbd.scan_code_fifo, sc);
 	kbd.count++;
 	usb.kbd_inject_count++;
 	if (sc & SCF_KEY_UP)
@@ -276,7 +350,7 @@ U0 XhkEvtHandle()
 		return;
 	if (!usb.kbd_ring)
 		return;
-	if (usb.kbd_xfer_len)
+	if (usb.kbd_xfer_len && XhcXferOk(usb.kbd_xfer_code))
 		XhkRptHandle(usb.ctrl_buf + udma_kbd, usb.kbd_xfer_len);
 	usb.kbd_pending = FALSE;
 	usb.kbd_xfer_done = FALSE;
