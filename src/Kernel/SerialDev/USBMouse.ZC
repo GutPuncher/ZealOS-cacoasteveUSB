@@ -39,7 +39,10 @@ U0 XhmRptHandle(U8 *rpt, I64 len)
 		return;
 
 	off = 0;
-	if (len >= 4)
+	// Boot mouse reports are [buttons][X][Y][wheel?].  A pressed button
+	// makes byte 0 nonzero, so only treat byte 0 as a report ID when there
+	// is room for ID + at least a 4-byte mouse report.
+	if (len >= 5)
 	{
 		if (rpt[0] >= 1)
 		{
