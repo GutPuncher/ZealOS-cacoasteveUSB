@@ -32,7 +32,6 @@ Kernel/BlkDev/DiskAddDev.ZC
 Kernel/SerialDev/MakeSerialDev.ZC
 Kernel/SerialDev/Mouse.ZC
 Kernel/SerialDev/USB.ZC
-Kernel/SerialDev/USB.HH
 Kernel/SerialDev/USBXHCI.ZC
 Kernel/SerialDev/USBControl.ZC
 Kernel/SerialDev/USBKbd.ZC
