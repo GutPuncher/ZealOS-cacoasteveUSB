@@ -61,10 +61,10 @@ When $FG,2$Comp("/Kernel/Kernel")$FG$ fails during $FG,2$BootHDInsAuto$FG$, chec
 * $FG,2$Spawn() in .ZC kernel files.$FG$ Assignment like $FG,2$t = Spawn(...)$FG$ often hits $FG,2$Invalid lval at Spawn$FG$. Call init inline or spawn from $FG,2$StartOS$FG$ only.
 * $FG,2$Local names vs globals.$FG$ Locals can clash with globals ($FG,2$speed$FG$ vs $FG,2$mouse.speed$FG$) — use distinct names ($FG,2$port_speed$FG$).
 * $FG,2$StrCompare$FG$, not $FG,2$StrCmp$FG$.
-* $FG,2$Shell typing ≠ compile rules.$FG$ Do $FG,2$not$FG$ type $FG,2$BootInsAuto;$FG$ at the prompt — autocomplete misparses it as $FG,2$BootIns.Auto$FG$. Use $FG,2$RebuildKernel;$FG$ or $FG,2$BootHDInsPendingReboot;$FG$. This does $FG,2$not$FG$ mean compound identifiers like $FG,2$KbdCmdRead$FG$ or $FG,2$EpRingPost$FG$ need renaming; member access needs an explicit $FG,2$.$FG$ ($FG,2$usb.kbd_slot$FG$, $FG,2$offset(CXHCITrb.param)$FG$).
+* $FG,2$Shell typing ≠ compile rules.$FG$ Do $FG,2$not$FG$ type $FG,2$BootInsAuto;$FG$ at the prompt — autocomplete misparses it as $FG,2$BootIns.Auto$FG$. Use $FG,2$RebuildKernel;$FG$. This does $FG,2$not$FG$ mean compound identifiers like $FG,2$KbdCmdRead$FG$ or $FG,2$EpRingPost$FG$ need renaming; member access needs an explicit $FG,2$.$FG$ ($FG,2$usb.kbd_slot$FG$, $FG,2$offset(CXHCITrb.param)$FG$).
 * $FG,2$Function pointers need &$FG$ in callbacks: $FG,2$Spawn(&XhkWatchTask,, "USKWatch")$FG$.
 * $FG,2$No usb.* in StartOS.$FG$ Kernel globals like $FG,2$usb.kbd_slot$FG$ are not visible to $FG,2$StartOS.ZC$FG$. Put multi-line $FG,2$UsbBootLast.DD$FG$ output in kernel ($FG,2$UsbBootLastWrite$FG$ from $FG,2$UsbBootInit$FG$).
-* $FG,2$Rebuild Kernel click$FG$ = reboot, then compile boot (~20s), then auto-reboot. Failed compile stops before desktop and shows $FG,2$BootInsErrs.DD$FG$.
+* $FG,2$Rebuild Kernel click$FG$ = reboot normally, then $FG,2$/Home/Once.ZC$FG$ rebuilds after the system server starts, then auto-reboots. Failed compile writes $FG,2$BootInsErrs.DD$FG$ and $FG,2$BootCompileLog.DD$FG$.
 
 $FG,5$Host sync (UTM qcow2)$FG$
 After editing $FG,2$Kernel/SerialDev/*.ZC$FG$, shut down the VM and run $FG,2$build/setup-utm-usb-test.sh$FG$ (or $FG,2$build/patch-utm-disk.sh$FG$). Patching sources alone does not update $FG,2$Kernel.ZXE$FG$ — you still need $FG,2$BootHDInsAuto; Reboot;$FG$ inside the guest.

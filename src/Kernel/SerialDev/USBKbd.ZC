@@ -226,8 +226,7 @@ U0 XhkModDiff(U8 mod, U8 last_mod)
 
 U0 XhkRptHandle(U8 *rpt, I64 len)
 {
-	I64 i, sc, flags;
-	U8 usage, mod, last_mod;
+	I64 i, sc, flags, usage, mod, last_mod;
 	U8 norm[8];
 
 	XhkRptDbg(rpt, len);

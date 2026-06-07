@@ -128,11 +128,11 @@ public U0 BootHDInsAutoKernelOnlyReboot(U8 drv_let='C', I64 hd_port=0, I64 cd_po
 	Reboot;
 }
 
+public U0 NormalRebuildKernel();
+
 public U0 BootHDInsPendingReboot()
-{//Early boot rebuild path; use only when normal boot cannot reach /Home/Once.ZC.
-	FileWrite("C:/Home/BootInsPending.DD", "1", 1);
-	FileWrite("C:/Home/.boot_ins_pending", "1", 1);
-	Reboot;
+{//Legacy click target. Use the safer normal-boot rebuild path.
+	NormalRebuildKernel;
 }
 
 public U0 NormalRebuildKernel()

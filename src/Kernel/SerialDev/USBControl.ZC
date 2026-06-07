@@ -518,8 +518,8 @@ Bool HidDevBind(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, I64 inte
 U0 CfgParseHid(I64 slot, U8 *cfg, I64 len, I64 port_speed)
 {
 	I64 i = 0, iface = -1, ep_addr, max_pkt, proto, dci, interval, cfg_val = 1, x;
+	I64 cls = 0, sub = 0, desc_len;
 	Bool try_kbd, try_mouse, boot_iface;
-	U8 cls = 0, sub = 0, desc_len;
 
 	usb_debug_cfg_len = len;
 	usb_debug_iface_cls = 0;
