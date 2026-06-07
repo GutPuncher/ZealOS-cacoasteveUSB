@@ -8,7 +8,7 @@
 #   5. build/check-utm-usb-boot.sh — expect active=0x3, evt/len moving when you type/move.
 # Fresh QEMU-from-ISO installs: use build/build-iso.sh, same xHCI args, BootHDInsAuto; Reboot; inside guest.
 set -e
-# UsbBootOk is written by BootKernelFull after a successful compile — not here.
+# StartOS always tries native USB first; the rebuild bakes driver changes into Kernel.ZXE.
 export AUTO_NORMAL_REBUILD=1
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 exec "$SCRIPT_DIR/patch-utm-disk.sh"

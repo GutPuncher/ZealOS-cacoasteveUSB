@@ -16,17 +16,16 @@ For xHCI driver testing:
   qemu-system-x86_64 -cdrom ZealOS.iso -device qemu-xhci -device usb-kbd -device usb-tablet
 
 $FG,5$Boot Sequence$FG$
-1. Run $FG,2$BootHDInsAuto;$FG$ once (creates $FG,2$/Home/.usb_boot_ok$FG$), then $FG,2$Reboot;$FG$. Kernel changes require this — patched $FG,2$.ZC$FG$ files alone are not enough.
-2. $FG,2$StartOS$FG$ calls $LK,"UsbBootInit",A="MN:UsbBootInit"$ when that marker exists; PS/2 is used only for keyboard/mouse USB did not bind.
+1. $FG,2$StartOS$FG$ always tries $LK,"UsbBootInit",A="MN:UsbBootInit"$ first. PS/2 is used only for keyboard/mouse USB did not bind.
+2. Kernel changes still require a rebuilt $FG,2$Kernel.ZXE$FG$ — patched $FG,2$.ZC$FG$ files alone are not enough.
 3. Reboot before $FG,2$BootHDInsAuto;$FG$ if USB already ran this session (frees RAM for the kernel compile).
 
 $FG,5$Recovery (no keyboard at all)$FG$
 If USB-only boot leaves you with no input, you are probably running an old $FG,2$Kernel.ZXE$FG$ (never rebuilt after USB fixes). Recovery:
 1. In UTM enable **both PS/2 and USB** (xHCI + USB Keyboard + USB Mouse).
-2. Remove the auto-USB marker: $FG,2$REMOVE_USB_BOOT_OK=1 build/patch-utm-disk.sh$FG$ (or delete $FG,2$/Home/.usb_boot_ok$FG$ from the install ISO on another machine).
-3. Boot — $FG,2$StartOS$FG$ skips $FG,2$UsbBootInit$FG$; UTM may deliver input via PS/2 legacy path long enough to run $FG,2$BootHDInsAuto;$FG$.
-4. $FG,2$Reboot;$FG$ — marker is recreated; test USB-only again.
-5. Read the on-screen $FG,2$USB boot: stage=… active=…$FG$ line after reboot ($FG,2$active=0x3$FG$ = kbd+mouse).
+2. Boot with PS/2 available long enough to run $FG,2$BootHDInsAuto;$FG$ or $FG,2$RebuildKernel;$FG$.
+3. $FG,2$Reboot;$FG$ and test USB-only again.
+4. Read the on-screen $FG,2$USB boot: stage=… active=…$FG$ line after reboot ($FG,2$active=0x3$FG$ = kbd+mouse).
 
 $FG,5$UTM / QEMU$FG$
 * UTM on macOS sends host keyboard/mouse through **USB HID devices**, not the emulated i8042 PS/2 port. Disabling USB in UTM leaves PS/2 empty — ZealOS boots fine but gets **no input**.
@@ -35,14 +34,13 @@ $FG,5$UTM / QEMU$FG$
   $DA,-A$$FG,2$-device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-mouse,bus=xhci.0$FG$
 * **UI-only USB 3.0 (no Additional Arguments)** is not supported yet: UTM's default $FG,2$usb-tablet$FG$ is absolute positioning (not $FG,2$usb-mouse$FG$ relative), and host input may go through $FG,2$usb-redir$FG$ which this driver does not implement. The driver now scans **all** xHCI PCI functions and picks the controller with the most HID bindings, but you still need $FG,2$usb-kbd$FG$ + $FG,2$usb-mouse$FG$ on that controller.
 * You do **not** need two xHCI controllers — one $FG,2$qemu-xhci$FG$ with separate $FG,2$usb-kbd$FG$ and $FG,2$usb-mouse$FG$ ports is the intended setup ($FG,2$active=0x3$FG$).
-* Keep PS/2 **On** only for recovery when USB bind fails and you need input to run $FG,2$BootHDInsAuto;$FG$ — then run $FG,2$build/recover-utm-input.sh$FG$ to drop $FG,2$.usb_boot_ok$FG$.
+* Keep PS/2 **On** only for recovery when USB bind fails and you need input to run $FG,2$BootHDInsAuto;$FG$ or $FG,2$RebuildKernel;$FG$.
 * The driver scans **every xHCI root port** so separate $FG,2$usb-kbd$FG$ and $FG,2$usb-mouse$FG$ devices can both bind ($FG,2$active=0x3$FG$).
 * Recommended: $FG,2$qemu-xhci$FG$ + $FG,2$usb-kbd$FG$ + $FG,2$usb-mouse$FG$ (not $FG,2$usb-tablet$FG$ — relative mouse only).
 
 $FG,5$Known Failure Modes$FG$
 * $FG,2$UsbBootInit$FG$ uses poll mode (no IOAPIC remap at boot). $FG,2$UdRun;$FG$ may call $FG,2$UsbIntrEnable$FG$ for IRQ testing — routes the PCI $FG,2$interrupt line$FG$ (GSI), not INTA..D pin index 0–3.
 * Garbled menus / dead keyboard after boot — usually IOAPIC entries were hijacked by old USB IRQ code; update and $FG,2$BootHDInsAuto; Reboot;$FG$.
-* $FG,2$SET_USB_BOOT_OK$FG$ with $FG,2$AUTO_NORMAL_REBUILD$FG$ is unsafe on an old $FG,2$Kernel.ZXE$FG$ — let $FG,2$BootKernelFull$FG$ write $FG,2$UsbBootOk$FG$ after compile.
 * USB-only laptops with no i8042 — PS/2 fallback never works; native xHCI is required.
 * xHCI still owned by firmware — driver must reset the controller and wait for $FG,2$USBSTS.HCHalted$FG$ to clear.
 * AMD Ryzen boards — use explicit MMIO U32 access; avoid struct aliasing on device registers (see AHCI notes).

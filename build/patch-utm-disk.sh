@@ -222,29 +222,6 @@ patch_limine_conf() {
 patch_limine_conf "$PART1_OFF" "1"
 patch_limine_conf "$PART2_OFF" "2"
 
-remove_usb_boot_ok() {
-	off=$1
-	label=$2
-	if [ -n "$REMOVE_USB_BOOT_OK" ]; then
-		echo "Removing ::/Home/.usb_boot_ok on partition $label..."
-			mdel -i "$RAW@@${off}" ::/Home/.usb_boot_ok 2>/dev/null || true
-	fi
-}
-remove_usb_boot_ok "$PART1_OFF" "1"
-remove_usb_boot_ok "$PART2_OFF" "2"
-
-set_usb_boot_ok() {
-	off=$1
-	label=$2
-	if [ -n "$SET_USB_BOOT_OK" ] && [ -z "$AUTO_NORMAL_REBUILD" ]; then
-		echo "Creating ::/Home/UsbBootOk.DD on partition $label (StartOS will run UsbBootInit)..."
-		printf '1' | mcopy -o -i "$RAW@@${off}" - ::/Home/UsbBootOk.DD
-		printf '1' | mcopy -o -i "$RAW@@${off}" - ::/Home/.usb_boot_ok
-	fi
-}
-set_usb_boot_ok "$PART1_OFF" "1"
-set_usb_boot_ok "$PART2_OFF" "2"
-
 remove_boot_ins_pending() {
 	off=$1
 	label=$2

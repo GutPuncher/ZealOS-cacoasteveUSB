@@ -122,8 +122,6 @@ public U0 BootHDInsAutoKernelOnlyReboot(U8 drv_let='C', I64 hd_port=0, I64 cd_po
 		throw;
 	}
 
-	FileWrite("C:/Home/UsbBootOk.DD", "1", 1);
-	FileWrite("C:/Home/.usb_boot_ok", "1", 1);
 	FileWrite("C:/Home/BootInsStage.DD", "reboot", 6);
 	Reboot;
 }
@@ -150,7 +148,5 @@ public U0 RebuildKernel()
 }
 
 public U0 UsbBootEnable()
-{//After BootHDInsAuto + Reboot, opt in to UsbBootInit each boot (see ::/Doc/USBBoot.DD).
-	FileWrite("C:/Home/UsbBootOk.DD", "1", 1);
-	FileWrite("C:/Home/.usb_boot_ok", "1", 1);
+{//Legacy no-op. StartOS always tries UsbBootInit now (see ::/Doc/USBBoot.DD).
 }

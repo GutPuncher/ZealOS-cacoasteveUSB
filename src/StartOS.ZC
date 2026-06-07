@@ -37,7 +37,7 @@ U0 BootStatusType(U8 *filename)
 Cd("C:/Home");
 Del("C:/Home/BootAutoKernelConfig.DD",, FALSE, FALSE);
 I64 boot_ins_pending = FileFind("BootInsPending.DD");
-I64 usb_boot_ok = 0, usb_has_mouse;
+I64 usb_has_mouse;
 if (boot_ins_pending)
 {
 	Del("BootInsPending.DD",, FALSE, FALSE);
@@ -85,7 +85,7 @@ if (boot_ins_pending)
 Option(OPTf_WARN_PAREN, OFF);
 Option(OPTf_WARN_DUP_TYPES, OFF);
 
-// Native USB after BootHDInsAuto (/Home/.usb_boot_ok). PS/2 fills anything USB misses.
+// Native USB first. PS/2 fills anything USB misses.
 // See ::/Doc/USBBoot.DD
 
 //Debug("Type 'G;'");
@@ -97,15 +97,9 @@ Fs->win_inhibit = WIG_TASK_DEFAULT - WIF_SELF_BORDER - WIF_SELF_GRAB_SCROLL - WI
 LBts(&Fs->display_flags, DISPLAYf_CHILDREN_NOT_ON_TOP);
 LBts(&Fs->display_flags, DISPLAYf_SHOW);
 
-usb_boot_ok = FileFind("C:/Home/UsbBootOk.DD");
-if (usb_boot_ok == 0)
-	usb_boot_ok = FileFind("C:/Home/.usb_boot_ok");
-if (usb_boot_ok != 0)
-{
-	Silent;
-	UsbBootInit;
-	Silent(OFF);
-}
+Silent;
+UsbBootInit;
+Silent(OFF);
 if (!(sys_usb_input_active & UK))
 	KbdInit; // PS/2 keyboard; skip when native USB keyboard bound.
 usb_has_mouse = sys_usb_input_active & UM;

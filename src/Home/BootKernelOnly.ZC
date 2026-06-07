@@ -47,8 +47,6 @@ public U0 BootKernelOnlyReboot()
 	}
 	Free(buf);
 
-	FileWrite("C:/Home/UsbBootOk.DD", "1", 1);
-	FileWrite("C:/Home/.usb_boot_ok", "1", 1);
 	FileWrite("C:/Home/BootInsStage.DD", "reboot", 6);
 	Reboot;
 }

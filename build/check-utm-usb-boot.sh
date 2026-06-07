@@ -31,7 +31,7 @@ try:
     for n, off in enumerate(offsets, 1):
         img = f"{raw}@@{off}"
         print(f"Partition {n}:")
-        for path in ("::/Home/UsbBootLast.DD", "::/Home/UsbBootOk.DD", "::/Home/BootInsPending.DD", "::/Home/NormalRebuildKernel.DD", "::/Home/BootInsStage.DD", "::/Home/BootInsErrs.DD", "::/Home/BootCompileLog.DD", "::/Home/BootAutoKernelConfig.DD"):
+        for path in ("::/Home/UsbBootLast.DD", "::/Home/BootInsPending.DD", "::/Home/NormalRebuildKernel.DD", "::/Home/BootInsStage.DD", "::/Home/BootInsErrs.DD", "::/Home/BootCompileLog.DD", "::/Home/BootAutoKernelConfig.DD"):
             out = tempfile.mktemp()
             r = subprocess.run(["mcopy", "-i", img, path, out], capture_output=True)
             label = path.split("/")[-1]
