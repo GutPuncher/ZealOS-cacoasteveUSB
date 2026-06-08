@@ -28,6 +28,40 @@ TMPISODIR="$TMPDIR/iso"
 TMPDISK="$TMPDIR/ZealOS.raw"
 TMPMOUNT="$TMPDIR/mnt"
 
+fail_build() {
+	echo "ERROR: $*" >&2
+	false
+}
+
+require_file() {
+	[ -f "$1" ] || fail_build "missing required file: $1"
+}
+
+require_same_file() {
+	if ! cmp -s "$1" "$2"; then
+		fail_build "staged file differs from source: $2"
+	fi
+}
+
+require_kernel_symbol() {
+	if ! strings "$1" | grep -q "$2"; then
+		fail_build "kernel image missing symbol/text '$2': $1"
+	fi
+}
+
+verify_current_usb_tree() {
+	root="$1"
+	echo "Verifying staged USB input tree in $root ..."
+	require_same_file "../src/StartOS.ZC" "$root/StartOS.ZC"
+	require_same_file "../src/Kernel/SerialDev/USB.ZC" "$root/Kernel/SerialDev/USB.ZC"
+	require_same_file "../src/Kernel/SerialDev/USBControl.ZC" "$root/Kernel/SerialDev/USBControl.ZC"
+	require_same_file "../src/Kernel/SerialDev/USBKbd.ZC" "$root/Kernel/SerialDev/USBKbd.ZC"
+	require_same_file "../src/Kernel/SerialDev/USBMouse.ZC" "$root/Kernel/SerialDev/USBMouse.ZC"
+	require_same_file "../src/Kernel/SerialDev/USBXHCI.ZC" "$root/Kernel/SerialDev/USBXHCI.ZC"
+	require_same_file "../src/Doc/USBBoot.DD" "$root/Doc/USBBoot.DD"
+	require_file "$root/Demo/USBInput.ZC"
+}
+
 # Change this if your default QEMU version does not work and you have installed a different version elsewhere.
 QEMU_BIN_PATH="$(dirname "$(which qemu-system-x86_64)")"
 
@@ -74,6 +108,7 @@ rm -f ../src/Boot/Kernel.ZXE
 mount_tempdisk
 sudo mkdir -p "$TMPMOUNT/Tmp/OSBuild"
 sudo cp -r ../src/* "$TMPMOUNT/Tmp/OSBuild/"
+verify_current_usb_tree "$TMPMOUNT/Tmp/OSBuild"
 umount_tempdisk
 
 echo "Rebuilding kernel headers, kernel, OS, and building Distro ISO ..."
@@ -109,6 +144,10 @@ sed -i "s/\[\]/\[$(grep -o "0x" ./limine/limine-bios-hdd.h | wc -l)\]/g" limine/
 
 mount_tempdisk
 echo "Extracting MyDistro ISO from vdisk ..."
+require_file "$TMPMOUNT/Tmp/MyDistro.ISO.C"
+require_file "$TMPMOUNT/Tmp/DVDKernel.ZXE"
+verify_current_usb_tree "$TMPMOUNT"
+require_kernel_symbol "$TMPMOUNT/Tmp/DVDKernel.ZXE" "UsbBootInit"
 cp "$TMPMOUNT/Tmp/MyDistro.ISO.C" ./ZealOS-MyDistro.iso
 sudo rm -f "$TMPMOUNT/Tmp/MyDistro.ISO.C"
 echo "Setting up temp ISO directory contents for use with limine xorriso command ..."
@@ -126,6 +165,8 @@ sudo cp ../zealbooter/limine.conf "$TMPISODIR/Boot/Limine.CONF"
 echo "Copying DVDKernel.ZXE over ISO Boot/Kernel.ZXE ..."
 sudo mv "$TMPMOUNT/Tmp/DVDKernel.ZXE" "$TMPISODIR/Boot/Kernel.ZXE"
 sudo rm -f "$TMPISODIR/Tmp/DVDKernel.ZXE"
+verify_current_usb_tree "$TMPISODIR"
+require_kernel_symbol "$TMPISODIR/Boot/Kernel.ZXE" "UsbBootInit"
 umount_tempdisk
 
 truncate -s 32K bios_boot.img
