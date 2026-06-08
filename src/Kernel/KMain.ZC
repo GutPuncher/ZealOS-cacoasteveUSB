@@ -129,7 +129,10 @@ U0 Reboot(Bool format_ramdisks=FALSE)
 
 U0 KMain()
 {//Continued from $LK,"KStart64.ZC",A="FF:::/Kernel/KStart64.ZC,I32 &KMain"$
-	CBlkDev *bd;
+	CBlkDev	*bd;
+	CDrive	*boot_drive;
+	I64		 i;
+	U8		 boot_drv_let;
 
 	OutU8(PCSPKR, InU8(PCSPKR) & ~3); //Sound;
 	sys_task = Fs;
@@ -178,8 +181,27 @@ U0 KMain()
 
 	"BlkDevsInitAll;\n";
 	BlkDevsInitAll;
-	"\nDiskChange(':');\n";
-	DiskChange(':');
+	boot_drv_let = 0;
+	if (sys_boot_src.u16[0] == BOOT_SRC_DVD)
+		for (i = 'T'; i <= 'Z'; i++)
+			if ((boot_drive = Letter2Drive(i, FALSE)) && boot_drive->bd->type == BDT_ATAPI)
+			{
+				boot_drv_let = i;
+				blkdev.boot_drive_let = i;
+				break;
+			}
+	if (!boot_drv_let && (boot_drive = Letter2Drive(':', FALSE)))
+		boot_drv_let = Drive2Letter(boot_drive);
+	if (boot_drv_let)
+	{
+		"\nDiskChange('%C');\n", boot_drv_let;
+		DiskChange(boot_drv_let);
+	}
+	else
+	{
+		"\nDiskChange(':');\n";
+		DiskChange(':');
+	}
 
 	#exe
 	{
