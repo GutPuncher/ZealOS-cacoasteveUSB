@@ -933,7 +933,8 @@ U0 UsbBootLastWrite()
 				   usb.ms_xfer_done, usb.ms_xfer_code, usb.ms_xfer_len, usb.ms_acc_x, usb.ms_acc_y, usb.ms_acc_b,
 				   usb.ms_last_bytes[0], usb.ms_last_bytes[1], usb.ms_last_bytes[2], usb.ms_last_bytes[3],
 				   usb.ms_last_bytes[4], usb.ms_last_bytes[5], usb.ms_last_bytes[6], usb.ms_last_bytes[7]);
-	FileWrite("C:/Home/UsbBootLast.DD", st, StrLen(st));
+	if (Letter2Drive('C', FALSE))
+		FileWrite("C:/Home/UsbBootLast.DD", st, StrLen(st));
 	Free(st);
 }
 
