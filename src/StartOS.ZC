@@ -34,25 +34,29 @@ U0 BootStatusType(U8 *filename)
 
 // Rebuild kernel before MakeSystem - loading System + WinMgr first exhausts RAM for Comp().
 // See ::/Doc/USBBoot.DD
-Cd("C:/Home");
-Del("C:/Home/BootAutoKernelConfig.DD",, FALSE, FALSE);
-I64 boot_ins_pending = FileFind("BootInsPending.DD");
+I64 boot_ins_pending = FALSE;
 I64 usb_has_mouse;
-if (boot_ins_pending)
+if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE))
 {
-	Del("BootInsPending.DD",, FALSE, FALSE);
-	Del(".boot_ins_pending",, FALSE, FALSE);
-	Del("OnceRebuildKernel.DD",, FALSE, FALSE);
-	Del(".once_rebuild_kernel",, FALSE, FALSE);
-}
-else
-{
-	boot_ins_pending = FileFind(".boot_ins_pending");
+	Cd("C:/Home");
+	Del("C:/Home/BootAutoKernelConfig.DD",, FALSE, FALSE);
+	boot_ins_pending = FileFind("BootInsPending.DD");
 	if (boot_ins_pending)
 	{
+		Del("BootInsPending.DD",, FALSE, FALSE);
 		Del(".boot_ins_pending",, FALSE, FALSE);
 		Del("OnceRebuildKernel.DD",, FALSE, FALSE);
 		Del(".once_rebuild_kernel",, FALSE, FALSE);
+	}
+	else
+	{
+		boot_ins_pending = FileFind(".boot_ins_pending");
+		if (boot_ins_pending)
+		{
+			Del(".boot_ins_pending",, FALSE, FALSE);
+			Del("OnceRebuildKernel.DD",, FALSE, FALSE);
+			Del(".once_rebuild_kernel",, FALSE, FALSE);
+		}
 	}
 }
 if (boot_ins_pending)
