@@ -917,6 +917,7 @@ public U0 UsbInit()
 U0 UsbBootLastWrite()
 {
 	U8 *st;
+	CDrive *drive;
 
 	st = MStrPrint("stage=%d active=0x%X cfg_len=%d iface_cls=%d ep0_mps=%d ep0_state=%d xfer_code=%d cmd_code=%d port=%d port_idx=%d speed=%d addr_code=%d deq_code=%d\n"
 				   "kbd slot=%d dci=%d iface=%d ep=0x%X max=%d ring=0x%X phys=0x%X pend=%d sub=%d evt=%d rep=%d inj=%d len=%d code=%d fifo=%d kcnt=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
@@ -933,8 +934,25 @@ U0 UsbBootLastWrite()
 				   usb.ms_xfer_done, usb.ms_xfer_code, usb.ms_xfer_len, usb.ms_acc_x, usb.ms_acc_y, usb.ms_acc_b,
 				   usb.ms_last_bytes[0], usb.ms_last_bytes[1], usb.ms_last_bytes[2], usb.ms_last_bytes[3],
 				   usb.ms_last_bytes[4], usb.ms_last_bytes[5], usb.ms_last_bytes[6], usb.ms_last_bytes[7]);
-	if (Letter2Drive('C', FALSE))
-		FileWrite("C:/Home/UsbBootLast.DD", st, StrLen(st));
+	// Live ISO + empty C: is normal (install from DVD). Only log to /Home on installed FAT/RedSea C:.
+	drive = Letter2Drive('C', FALSE);
+	if (drive)
+	{
+		if (drive->fs_type == FSt_FAT32 || drive->fs_type == FSt_REDSEA)
+		{
+			if (DriveIsWritable('C', FALSE))
+			{
+				try
+				{
+					FileWrite("C:/Home/UsbBootLast.DD", st, StrLen(st));
+				}
+				catch
+				{
+					Fs->catch_except = TRUE;
+				}
+			}
+		}
+	}
 	Free(st);
 }
 

@@ -17,8 +17,9 @@ For xHCI driver testing:
 
 $FG,5$Boot Sequence$FG$
 1. $FG,2$StartOS$FG$ always tries $LK,"UsbBootInit",A="MN:UsbBootInit"$ first. PS/2 is used only for keyboard/mouse USB did not bind.
-2. Kernel changes still require a rebuilt $FG,2$Kernel.ZXE$FG$ — patched $FG,2$.ZC$FG$ files alone are not enough.
-3. Reboot before $FG,2$BootHDInsAuto;$FG$ if USB already ran this session (frees RAM for the kernel compile).
+2. Live DVD/ISO install with an empty hard disk is normal — $FG,2$UsbBootLastWrite$FG$ only writes $FG,2$C:/Home/UsbBootLast.DD$FG$ when C: is installed FAT32/RedSea and writable (never on blank C:).
+3. Kernel changes still require a rebuilt $FG,2$Kernel.ZXE$FG$ — patched $FG,2$.ZC$FG$ files alone are not enough.
+4. Reboot before $FG,2$BootHDInsAuto;$FG$ if USB already ran this session (frees RAM for the kernel compile).
 
 $FG,5$Recovery (no keyboard at all)$FG$
 If USB-only boot leaves you with no input, you are probably running an old $FG,2$Kernel.ZXE$FG$ (never rebuilt after USB fixes). Recovery:
