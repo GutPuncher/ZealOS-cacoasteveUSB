@@ -56,6 +56,91 @@ U0 XhmRptDbg(U8 *rpt, I64 len)
 	}
 }
 
+Bool XhmAbsRptOk(U8 *rpt, I64 len, I64 *off)
+{
+	I64 o = 0;
+
+	// Absolute: [buttons][x_lo][x_hi][y_lo][y_hi] or leading report ID + 5 bytes.
+	if (len >= 6)
+	{
+		if (rpt[0] >= 1)
+		{
+			if (rpt[0] <= 15)
+				o = 1;
+		}
+	}
+	if (len < o + 5)
+		return FALSE;
+	*off = o;
+	return TRUE;
+}
+
+U0 XhmRptAbs(U8 *rpt, I64 len)
+{
+	I64 off, b, x, y, dx, dy, adx, ady, sw, sh, npx, npy, last_b;
+
+	if (!XhmAbsRptOk(rpt, len, &off))
+		return;
+
+	b = rpt[off] & 7;
+	x = rpt[off + 1] | (rpt[off + 2] << 8);
+	y = rpt[off + 3] | (rpt[off + 4] << 8);
+	sw = sys_framebuffer_width;
+	sh = sys_framebuffer_height;
+	if (sw < 640)
+		sw = 1024;
+	if (sh < 480)
+		sh = 768;
+	npx = x * sw / 32768;
+	npy = y * sh / 32768;
+	last_b = usb.ms_acc_b & 7;
+	if (!usb.ms_abs_seen)
+	{
+		usb.ms_abs_seen = TRUE;
+		usb.ms_last_abs_x = npx;
+		usb.ms_last_abs_y = npy;
+		usb.ms_acc_b = b;
+		return;
+	}
+	// Re-anchor on new button press (UTM focus grab) without cursor warp.
+	if (b & ~last_b & 7)
+	{
+		usb.ms_last_abs_x = npx;
+		usb.ms_last_abs_y = npy;
+		usb.ms_acc_x = 0;
+		usb.ms_acc_y = 0;
+		usb.ms_acc_b = b;
+		return;
+	}
+	dx = npx - usb.ms_last_abs_x;
+	dy = npy - usb.ms_last_abs_y;
+	adx = dx;
+	if (adx < 0)
+		adx = -adx;
+	ady = dy;
+	if (ady < 0)
+		ady = -ady;
+	if (adx > sw / 3)
+	{
+		usb.ms_last_abs_x = npx;
+		usb.ms_last_abs_y = npy;
+		usb.ms_acc_b = b;
+		return;
+	}
+	if (ady > sh / 3)
+	{
+		usb.ms_last_abs_x = npx;
+		usb.ms_last_abs_y = npy;
+		usb.ms_acc_b = b;
+		return;
+	}
+	usb.ms_last_abs_x = npx;
+	usb.ms_last_abs_y = npy;
+	usb.ms_acc_x += dx;
+	usb.ms_acc_y += dy;
+	usb.ms_acc_b = b;
+}
+
 U0 XhmRptRel(U8 *rpt, I64 len)
 {
 	I64 dx, dy, dz, b, off, b_idx, x_idx, y_idx, w_idx, wheel;
@@ -109,10 +194,10 @@ U0 XhmRptHandle(U8 *rpt, I64 len)
 		return;
 
 	XhmRptDbg(rpt, len);
-	// Pass 1 for usb-tablet: log raw bytes; absolute parse comes next.
 	if (usb.ms_abs)
-		return;
-	XhmRptRel(rpt, len);
+		XhmRptAbs(rpt, len);
+	else
+		XhmRptRel(rpt, len);
 }
 
 U0 XhmAccFlush()
@@ -222,26 +307,5 @@ U0 XhmEvtHandle()
 	usb.ms_pending = FALSE;
 	usb.ms_xfer_done = FALSE;
 	POPFD
-	XhmIntrSub();
-}
-
-public U0 UsbPollEvt()
-{
-	if (!usb.active)
-		return;
-	if (usb.irq)
-		return;
-	if (sys_usb_input_active & UK)
-	{
-		if (usb.kbd_ring && !usb.kbd_pending && !usb.kbd_xfer_done)
-			XhkIntrSub();
-	}
-	if (sys_usb_input_active & UM)
-	{
-		if (usb.ms_ring && !usb.ms_pending && !usb.ms_xfer_done)
-			XhmIntrSub();
-	}
-	XHCIEventAdvance(64);
-	XhkEvtHandle();
-	XhmEvtHandle();
+	XhmIntrSub;
 }

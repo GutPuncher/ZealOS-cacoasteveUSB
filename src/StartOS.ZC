@@ -35,11 +35,16 @@ U0 BootStatusType(U8 *filename)
 // Rebuild kernel before MakeSystem - loading System + WinMgr first exhausts RAM for Comp().
 // See ::/Doc/USBBoot.DD
 I64 boot_ins_pending = FALSE;
+I64 normal_rebuild_pending = FALSE;
+I64 usb_only_input = FALSE;
 I64 usb_has_mouse;
 if (sys_boot_src.u16[0] != BOOT_SRC_DVD && Letter2Drive('C', FALSE))
 {
 	Cd("C:/Home");
 	Del("C:/Home/BootAutoKernelConfig.DD",, FALSE, FALSE);
+	normal_rebuild_pending = FileFind("NormalRebuildKernel.DD") || FileFind(".normal_rebuild_kernel") ||
+			FileFind("OnceRebuildKernel.DD") || FileFind(".once_rebuild_kernel");
+	usb_only_input = FileFind("UsbOnlyInput.DD") || FileFind(".usb_only_input");
 	boot_ins_pending = FileFind("BootInsPending.DD");
 	if (boot_ins_pending)
 	{
@@ -101,16 +106,45 @@ Fs->win_inhibit = WIG_TASK_DEFAULT - WIF_SELF_BORDER - WIF_SELF_GRAB_SCROLL - WI
 LBts(&Fs->display_flags, DISPLAYf_CHILDREN_NOT_ON_TOP);
 LBts(&Fs->display_flags, DISPLAYf_SHOW);
 
-Silent;
-UsbBootInit;
-Silent(OFF);
+if (!normal_rebuild_pending)
+{
+	Silent;
+	I64 usb_try;
+	for (usb_try = 0; usb_try < 3 && (sys_usb_input_active & (UK | UM)) != (UK | UM); usb_try++)
+	{
+		if (usb_try)
+			Sleep(500);
+		UsbBootInit;
+	}
+	Silent(OFF);
+}
+else
+	"USB boot skipped for queued kernel rebuild.\n";
 if (!(sys_usb_input_active & UK))
-	KbdInit; // PS/2 keyboard; skip when native USB keyboard bound.
+{
+	if (usb_only_input)
+		"PS/2 keyboard skipped for USB-only input.\n";
+	else
+		KbdInit; // PS/2 keyboard; skip when native USB keyboard bound.
+}
 usb_has_mouse = sys_usb_input_active & UM;
 if (!usb_has_mouse)
-	Spawn(&MouseHardDriverInstall);
+{
+	if (usb_only_input)
+	{
+		try
+			MouseHardEnable(FALSE);
+		catch
+			Fs->catch_except = TRUE;
+		"PS/2 mouse skipped for USB-only input.\n";
+	}
+	else
+		Spawn(&MouseHardDriverInstall);
+}
 
 "USB boot: stage=%d active=0x%X\n", usb_debug_stage, sys_usb_input_active;
+if (!(sys_usb_input_active & 3))
+	"$$RED$$No native USB keyboard/mouse (active=0x%X). See ::/Doc/USBBoot.DD.$$FG$$\n", sys_usb_input_active;
 RegInit;
 LBts(&sys_run_level, RLf_REGISTRY);
 

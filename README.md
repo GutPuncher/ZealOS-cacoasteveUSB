@@ -1,7 +1,9 @@
-USB support for keyboard and mouse in Zeal OS
+USB support for keyboard and mouse in ZealOS
 
-I have this in arguments in QEMU / UTM with USB disabled in the UI and force PS/2 disabled in the UI
+UTM target setup:
 
--device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-mouse,bus=xhci.0
+Input USB: USB 3.0 (XHCI)
+PS/2 Controller: Off
+Additional Arguments: empty
 
-qemu-system-x86_64 -L /Users/steve/Library/Containers/com.utmapp.UTM/Data/Library/Caches/qemu -S -spice unix=on,addr=D388ABFC-A67F-4D14-B4CF-A03E4B35F9A9.spice,disable-ticketing=on,image-compression=off,playback-compression=off,streaming-video=off,gl=off -chardev spiceport,name=org.qemu.monitor.qmp.0,id=org.qemu.monitor.qmp -mon chardev=org.qemu.monitor.qmp,mode=control -nodefaults -vga none -device rtl8139,mac=92:1F:B2:7F:0C:54,netdev=net0 -netdev vmnet-shared,id=net0 -device virtio-vga -cpu Skylake-Client -smp cpus=4,sockets=1,cores=4,threads=1 -machine pc-q35-9.1,vmport=off,hpet=off -accel tcg,tb-size=1024 -global PIIX4_PM.disable_s3=1 -global ICH9-LPC.disable_s3=1 -drive if=pflash,format=raw,unit=0,file.filename=/Users/steve/Library/Containers/com.utmapp.UTM/Data/Library/Caches/qemu/edk2-x86_64-code.fd,file.locking=off,readonly=on -drive if=pflash,unit=1,file=/Users/steve/Library/Containers/com.utmapp.UTM/Data/Documents/ZealOS.utm/Data/efi_vars.fd -m 4096 -audiodev spice,id=audio0 -device AC97,audiodev=audio0 -device ide-hd,bus=ide.0,drive=drive9B0F9544-DD68-41D3-ACC3-96A486D80F73,bootindex=0 -drive if=none,media=disk,id=drive9B0F9544-DD68-41D3-ACC3-96A486D80F73,file.filename=/Users/steve/Library/Containers/com.utmapp.UTM/Data/Documents/ZealOS.utm/Data/9B0F9544-DD68-41D3-ACC3-96A486D80F73-2-2-2-2-2-2-2-2-2.qcow2,discard=unmap,detect-zeroes=unmap -device ide-cd,bus=ide.1,drive=drive22F3B470-58D2-499A-8368-198213AF896B,bootindex=1 -drive if=none,media=cdrom,id=drive22F3B470-58D2-499A-8368-198213AF896B,file.filename=/Users/steve/github/templeos/ZealOS/build/EXODUS_CLEAN.iso,file.locking=off,readonly=on -device virtio-serial -device virtserialport,chardev=org.qemu.guest_agent,name=org.qemu.guest_agent.0 -chardev spiceport,name=org.qemu.guest_agent.0,id=org.qemu.guest_agent -name ZealOS -uuid D388ABFC-A67F-4D14-B4CF-A03E4B35F9A9 -device virtio-rng-pci -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-mouse,bus=xhci.0
+Use `build/setup-utm-usb-ui.sh` to apply that UTM configuration, sync the USB sources, and queue the guest-side kernel rebuild. After the reboot, `USB boot: active=0x3` means keyboard plus mouse/tablet input bound.

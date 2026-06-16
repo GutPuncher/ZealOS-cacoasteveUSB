@@ -2674,6 +2674,9 @@ class CSMBIOSBatteryInfo
 #define PCISC_USB		0x3
 
 //PCI USB programming interfaces
+#define PCIP_USB_UHCI	0x00
+#define PCIP_USB_OHCI	0x10
+#define PCIP_USB_EHCI	0x20
 #define PCIP_USB_XHCI	0x30
 
 // sys_usb_input_active bits (HolyC: avoid USBIn*, USBInit*, USBSet*, USBAct*, BootInsAuto, etc.)

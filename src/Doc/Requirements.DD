@@ -27,6 +27,6 @@ $FG,5$Unsupported Hardware$FG$
 
 * No USB mass storage or printers.
 
-* Native $FG,2$USB keyboard/mouse$FG$ via xHCI when available; $FG,2$PS/2$FG$ fallback otherwise.
+* Native $FG,2$USB keyboard/mouse$FG$ via xHCI when available; minimal UHCI HID for UTM/QEMU PC UI input; $FG,2$PS/2$FG$ fallback otherwise.
 
 * No printers.

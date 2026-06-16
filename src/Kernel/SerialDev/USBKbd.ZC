@@ -180,7 +180,16 @@ U0 XhkScanInj(I64 sc_in, Bool key_up)
 		}
 	}
 	if (set_leds)
-		KbdLEDsSet(sc);
+	{
+		// Caps/Num/Scroll LEDs are PS/2 controller commands; skip when USB owns the keyboard.
+		if (!(sys_usb_input_active & UK))
+		{
+			try
+				KbdLEDsSet(sc);
+			catch
+				Fs->catch_except = TRUE;
+		}
+	}
 	kbd.timestamp = TSCGet;
 	kbd.scan_code = sc;
 	kbd.new_key_timestamp = kbd.timestamp;
@@ -354,7 +363,7 @@ U0 XhkEvtHandle()
 		XhkRptHandle(usb.ctrl_buf + udma_kbd, usb.kbd_xfer_len);
 	usb.kbd_pending = FALSE;
 	usb.kbd_xfer_done = FALSE;
-	XhkIntrSub();
+	XhkIntrSub;
 }
 
 public U0 XhkWatchTask()

@@ -7,6 +7,7 @@
 #define USB_REQ_SET_IDLE		0x0A
 #define USB_REQ_SET_INTERFACE	11
 #define USB_REQ_SET_PROTOCOL	0x0B
+#define USB_REQ_GET_REPORT		0x01
 
 #define USB_DESC_DEVICE		1
 #define USB_DESC_CONFIG		2
@@ -18,9 +19,19 @@
 #define USB_PROTO_KBD		1
 #define USB_PROTO_MOUSE		2
 
-// DMA buffers live above EP0 workspace (config descriptors use up to 512 bytes).
-#define udma_ms		512
-#define udma_kbd		576
+// Shared DMA/control workspace. Config descriptors use 0..1023 during enum;
+// interrupt input buffers reuse the lower range only after enum is complete.
+#define USB_CTRL_BUF_SIZE	4096
+#define udma_ms				512
+#define udma_kbd			576
+#define udma_ehci_data		2048
+#define udma_hid_rpt		3072
+
+#define UHID_KIND_NONE		0
+#define UHID_KIND_KBD		1
+#define UHID_KIND_MOUSE		2
+
+#define UHCI_MAX_CTLRS		8
 
 #define USB_DIR_IN			0x80
 #define USB_DIR_OUT			0x00
@@ -194,6 +205,125 @@ public class CUSBStateGlobals
 	Bool	 ms_xfer_done;
 	I64		 kbd_xfer_len;
 	I64		 ms_xfer_len;
+
+	Bool	 ehci_active;
+	U8		*ehci_base;
+	I64		 ehci_bdf;
+	I64		 ehci_cap_length;
+	I64		 ehci_ports;
+	I64		 ehci_next_addr;
+	I64		 ehci_debug_portsc;
+	I64		 ehci_debug_port;
+	I64		 ehci_debug_code;
+	I64		 ehci_dev_speed;
+	I64		 ehci_dev_port;
+	U8		*ehci_periodic;
+	U64		 ehci_periodic_phys;
+	U8		*ehci_async_qh;
+	U64		 ehci_async_qh_phys;
+	U8		*ehci_ctrl_qtd;
+	U64		 ehci_ctrl_qtd_phys;
+	U8		*ehci_kbd_qh;
+	U64		 ehci_kbd_qh_phys;
+	U8		*ehci_kbd_qtd;
+	U64		 ehci_kbd_qtd_phys;
+	U8		*ehci_kbd_buf;
+	U64		 ehci_kbd_buf_phys;
+	Bool	 ehci_kbd_pending;
+	I64		 ehci_kbd_addr;
+	I64		 ehci_kbd_ep;
+	I64		 ehci_kbd_iface;
+	I64		 ehci_kbd_mps;
+	I64		 ehci_kbd_port;
+	I64		 ehci_kbd_speed;
+	I64		 ehci_kbd_max_pkt;
+	I64		 ehci_kbd_toggle;
+	I64		 ehci_kbd_done_count;
+	I64		 ehci_kbd_err_count;
+	U32		 ehci_kbd_last_token;
+	F64		 ehci_kbd_submit_t;
+	F64		 ehci_kbd_last_poll;
+	U8		*ehci_ms_qh;
+	U64		 ehci_ms_qh_phys;
+	U8		*ehci_ms_qtd;
+	U64		 ehci_ms_qtd_phys;
+	U8		*ehci_ms_buf;
+	U64		 ehci_ms_buf_phys;
+	Bool	 ehci_ms_pending;
+	I64		 ehci_ms_addr;
+	I64		 ehci_ms_ep;
+	I64		 ehci_ms_iface;
+	I64		 ehci_ms_mps;
+	I64		 ehci_ms_port;
+	I64		 ehci_ms_speed;
+	I64		 ehci_ms_max_pkt;
+	I64		 ehci_ms_toggle;
+	I64		 ehci_ms_done_count;
+	I64		 ehci_ms_err_count;
+	U32		 ehci_ms_last_token;
+	F64		 ehci_ms_submit_t;
+	F64		 ehci_ms_last_poll;
+	I64		 ehci_poll_count;
+	F64		 ehci_boot_last_t;
+
+	Bool	 uhci_active;
+	I64		 uhci_ctlr_count;
+	I64		 uhci_cur_ctlr;
+	I64		 uhci_bdfs[UHCI_MAX_CTLRS];
+	I64		 uhci_ios[UHCI_MAX_CTLRS];
+	U8		*uhci_frame[UHCI_MAX_CTLRS];
+	U64		 uhci_frame_phys[UHCI_MAX_CTLRS];
+	U8		*uhci_qh[UHCI_MAX_CTLRS];
+	U64		 uhci_qh_phys[UHCI_MAX_CTLRS];
+	U8		*uhci_td[UHCI_MAX_CTLRS];
+	U64		 uhci_td_phys[UHCI_MAX_CTLRS];
+	I64		 uhci_next_addr;
+	I64		 uhci_debug_code;
+	I64		 uhci_debug_ctlr;
+	I64		 uhci_debug_port;
+	I64		 uhci_debug_portsc;
+	I64		 uhci_dev_low;
+	I64		 uhci_dev_port;
+	I64		 uhci_kbd_ctlr;
+	I64		 uhci_kbd_addr;
+	I64		 uhci_kbd_ep;
+	I64		 uhci_kbd_iface;
+	I64		 uhci_kbd_mps;
+	I64		 uhci_kbd_max_pkt;
+	I64		 uhci_kbd_toggle;
+	I64		 uhci_kbd_low;
+	U8		*uhci_kbd_qh;
+	U64		 uhci_kbd_qh_phys;
+	U8		*uhci_kbd_td;
+	U64		 uhci_kbd_td_phys;
+	Bool	 uhci_kbd_pending;
+	I64		 uhci_kbd_done_count;
+	I64		 uhci_kbd_err_count;
+	U32		 uhci_kbd_last_sts;
+	F64		 uhci_kbd_last_poll;
+	F64		 uhci_kbd_submit_t;
+	I64		 uhci_ms_ctlr;
+	I64		 uhci_ms_addr;
+	I64		 uhci_ms_ep;
+	I64		 uhci_ms_iface;
+	I64		 uhci_ms_mps;
+	I64		 uhci_ms_max_pkt;
+	I64		 uhci_ms_toggle;
+	I64		 uhci_ms_low;
+	U8		*uhci_ms_qh;
+	U64		 uhci_ms_qh_phys;
+	U8		*uhci_ms_td;
+	U64		 uhci_ms_td_phys;
+	Bool	 uhci_ms_pending;
+	I64		 uhci_ms_done_count;
+	I64		 uhci_ms_err_count;
+	U32		 uhci_ms_last_sts;
+	F64		 uhci_ms_last_poll;
+	F64		 uhci_ms_submit_t;
+	I64		 uhci_poll_count;
+	I64		 uhci_ctrl_poll;
+	I64		 uhci_ctrl_poll_count;
+	F64		 uhci_boot_last_t;
 
 	Bool	 cmd_comp_done;
 	I64		 cmd_comp_slot;

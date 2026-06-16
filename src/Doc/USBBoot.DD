@@ -1,6 +1,6 @@
 $WW,1$$FG,5$$TX+CX,"USB Input Boot Workarounds"$$FG$
 
-ZealOS can use native $FG,2$xHCI$FG$ USB keyboard and mouse drivers. Until those work on your machine, or if you need to develop without USB code, use these fallbacks.
+ZealOS can use native $FG,2$xHCI$FG$ USB keyboard and mouse drivers and a minimal $FG,2$UHCI$FG$ HID path for UTM/QEMU PC UI input. Until those work on your machine, or if you need to develop without USB code, use these fallbacks.
 
 $FG,5$BIOS Legacy USB$FG$
 Enable "Legacy USB Support", "USB Keyboard/Mouse in Legacy Mode", or similar in firmware setup. The BIOS translates USB input into $FG,2$PS/2$FG$ for the i8042 controller ZealOS already supports.
@@ -12,8 +12,7 @@ $FG,5$QEMU Development$FG$
 Default QEMU PS/2 (no extra flags) matches the legacy ZealOS path:
   qemu-system-x86_64 -cdrom ZealOS.iso
 
-For xHCI driver testing:
-  qemu-system-x86_64 -cdrom ZealOS.iso -device qemu-xhci -device usb-kbd -device usb-tablet
+For UTM/Q35 UI USB input testing, use UTM's Input USB = USB 3.0 (XHCI), PS/2 Off, and no Additional Arguments.
 
 $FG,5$Boot Sequence$FG$
 1. $FG,2$StartOS$FG$ always tries $LK,"UsbBootInit",A="MN:UsbBootInit"$ first. PS/2 is used only for keyboard/mouse USB did not bind.
@@ -23,27 +22,26 @@ $FG,5$Boot Sequence$FG$
 
 $FG,5$Recovery (no keyboard at all)$FG$
 If USB-only boot leaves you with no input, you are probably running an old $FG,2$Kernel.ZXE$FG$ (never rebuilt after USB fixes). Recovery:
-1. In UTM enable **both PS/2 and USB** (xHCI + USB Keyboard + USB Mouse).
-2. Boot with PS/2 available long enough to run $FG,2$BootHDInsAuto;$FG$ or $FG,2$RebuildKernel;$FG$.
-3. $FG,2$Reboot;$FG$ and test USB-only again.
+1. Shut down the VM and run $FG,2$build/recover-utm-input.sh$FG$ from macOS.
+2. Keep UTM Input USB = **USB 3.0 (XHCI)**, PS/2 Controller = **Off**, and Additional Arguments empty.
+3. Boot and wait for the queued rebuild/reboot if the script synced sources.
 4. Read the on-screen $FG,2$USB boot: stage=… active=…$FG$ line after reboot ($FG,2$active=0x3$FG$ = kbd+mouse).
 
 $FG,5$UTM / QEMU$FG$
 * UTM on macOS sends host keyboard/mouse through **USB HID devices**, not the emulated i8042 PS/2 port. Disabling USB in UTM leaves PS/2 empty — ZealOS boots fine but gets **no input**.
-* **Do not enable "USB 3.0" in the UTM Input UI** while also using Additional Arguments — UTM adds $FG,2$-usb$FG$, $FG,2$nec-usb-xhci$FG$, $FG,2$usb-tablet$FG$, legacy $FG,2$usb-kbd/usb-mouse$FG$, and $FG,2$usb-redir$FG$ on top of your $FG,2$qemu-xhci$FG$ block (two controllers, five HID devices).
-* **Recommended UTM settings:** Input USB = **Disabled**; PS/2 Controller = **Off** (USB-only test); Additional Arguments only:
-  $DA,-A$$FG,2$-device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-mouse,bus=xhci.0$FG$
-* **UI-only USB 3.0 (no Additional Arguments)** is not supported yet: UTM's default $FG,2$usb-tablet$FG$ is absolute positioning (not $FG,2$usb-mouse$FG$ relative), and host input may go through $FG,2$usb-redir$FG$ which this driver does not implement. The driver now scans **all** xHCI PCI functions and picks the controller with the most HID bindings, but you still need $FG,2$usb-kbd$FG$ + $FG,2$usb-mouse$FG$ on that controller.
-* You do **not** need two xHCI controllers — one $FG,2$qemu-xhci$FG$ with separate $FG,2$usb-kbd$FG$ and $FG,2$usb-mouse$FG$ ports is the intended setup ($FG,2$active=0x3$FG$).
-* Keep PS/2 **On** only for recovery when USB bind fails and you need input to run $FG,2$BootHDInsAuto;$FG$ or $FG,2$RebuildKernel;$FG$.
+* UTM's **USB 3.0 (XHCI)** UI setting on PC/Q35 still attaches UI-created $FG,2$usb-tablet$FG$, $FG,2$usb-mouse$FG$, and $FG,2$usb-kbd$FG$ to QEMU $FG,2$usb-bus.0$FG$ from $FG,2$-usb$FG$. QEMU $FG,2$q35 -usb$FG$ exposes an ICH9 EHCI controller with UHCI companions; full-speed HID is handled on the UHCI side. ZealOS probes UHCI first for those UI devices, then EHCI/xHCI for other layouts and real USB 3 controllers.
+* **Recommended UTM settings:** Input USB = **USB 3.0 (XHCI)**; PS/2 Controller = **Off**; Additional Arguments = empty.
+* Do not add $FG,2$qemu-xhci$FG$, $FG,2$usb-kbd$FG$, $FG,2$usb-mouse$FG$, or $FG,2$usb-tablet$FG$ in Additional Arguments for normal UTM testing. That creates a different device topology from the UI-only target.
 * The driver scans **every xHCI root port** so separate $FG,2$usb-kbd$FG$ and $FG,2$usb-mouse$FG$ devices can both bind ($FG,2$active=0x3$FG$).
-* Recommended: $FG,2$qemu-xhci$FG$ + $FG,2$usb-kbd$FG$ + $FG,2$usb-mouse$FG$ (not $FG,2$usb-tablet$FG$ — relative mouse only).
+* $FG,2$usb-mouse$FG$ = relative boot HID + scroll wheel. $FG,2$usb-tablet$FG$ = absolute HID converted to relative motion in the driver.
+* UHCI support is intentionally narrow: HID keyboard/mouse/tablet for UTM's UI-created PC USB path only. It is not USB storage, hub, hotplug, or arbitrary USB device support.
 
 $FG,5$Known Failure Modes$FG$
-* $FG,2$UsbBootInit$FG$ uses poll mode (no IOAPIC remap at boot). $FG,2$UdRun;$FG$ may call $FG,2$UsbIntrEnable$FG$ for IRQ testing — routes the PCI $FG,2$interrupt line$FG$ (GSI), not INTA..D pin index 0–3.
+* $FG,2$UsbBootInit$FG$ uses poll mode only (no $FG,2$UsbIntrEnable$FG$ at boot). $FG,2$UdRun;$FG$ or $FG,2$UsbInit$FG$ may call $FG,2$UsbIntrEnable$FG$ for xHCI IRQ testing after boot — routes the PCI $FG,2$interrupt line$FG$ (GSI), not INTA..D pin index 0–3.
 * Garbled menus / dead keyboard after boot — usually IOAPIC entries were hijacked by old USB IRQ code; update and $FG,2$BootHDInsAuto; Reboot;$FG$.
 * USB-only laptops with no i8042 — PS/2 fallback never works; native xHCI is required.
-* xHCI still owned by firmware — driver must reset the controller and wait for $FG,2$USBSTS.HCHalted$FG$ to clear.
+* xHCI still owned by firmware — the driver claims OS ownership through the xHCI legacy extended capability before reset, then waits for $FG,2$USBSTS.HCHalted$FG$ to clear.
+* Intel PCH systems, including the Mac mini late 2014 class, may require USB 2.0/3.0 port routing to xHCI. The driver enables Intel switchable SuperSpeed ports and routes switchable USB 2.0 ports to xHCI using the documented PCI config routing masks.
 * AMD Ryzen boards — use explicit MMIO U32 access; avoid struct aliasing on device registers (see AHCI notes).
 
 $FG,5$Hotplug$FG$
@@ -55,18 +53,24 @@ When $FG,2$Comp("/Kernel/Kernel")$FG$ fails during $FG,2$BootHDInsAuto$FG$, chec
 * $FG,2$No continue.$FG$ Use $FG,2$goto$FG$ ($LK,"ZealC.DD",A="FI:::/Doc/ZealC.DD"$, line on $FG,2$continue$FG$).
 * $FG,2$No postfix ++/-- on dereferenced pointers.$FG$ $FG,2$(*idx)++$FG$ fails with $FG,2$Invalid lval$FG$. Use $FG,2$*idx = *idx + 1$FG$ or a local temp ($FG,2$EpRingPost$FG$ in $LK,"USBControl.ZC",A="FI:::/Kernel/SerialDev/USBControl.ZC"$).
 * $FG,2$No ! toggle through a pointer lvalue.$FG$ $FG,2$*cycle = !*cycle$FG$ fails; use a local ($FG,2$cyc = *cycle; *cycle = !cyc$FG$).
+* $FG,2$No C ternary operator.$FG$ $FG,2$is_kbd ? 1 : 2$FG$ fails in the kernel compiler; use an $FG,2$if$FG$ block.
 * $FG,2$Postfix casts only.$FG$ ZealC uses $FG,2$(expr)(U32 *)$FG$, not C-style $FG,2$(U32 *)expr$FG$. Same for classes: $FG,2$(ring + off)(CXHCITrb *)$FG$, not $FG,2$((CXHCITrb *)ring)[i]$FG$.
 * $FG,2$Call kernel functions without () when there are no args.$FG$ $FG,2$UsbCoreInit;$FG$ not $FG,2$UsbCoreInit();$FG$ (same as $FG,2$TimerInit;$FG$ in $LK,"KMain.ZC",A="FI:::/Kernel/KMain.ZC"$).
-* $FG,2$Define before use.$FG$ Include order in $LK,"MakeSerialDev.ZC",A="FI:::/Kernel/SerialDev/MakeSerialDev.ZC"$: $FG,2$USB.ZC → USBXHCI → USBControl → USBKbd → USBMouse$FG$.
-* $FG,2$Spawn() in .ZC kernel files.$FG$ Assignment like $FG,2$t = Spawn(...)$FG$ often hits $FG,2$Invalid lval at Spawn$FG$. Call init inline or spawn from $FG,2$StartOS$FG$ only.
+* $FG,2$Define before use.$FG$ Include order in $LK,"MakeSerialDev.ZC",A="FI:::/Kernel/SerialDev/MakeSerialDev.ZC"$: $FG,2$USB.ZC -> USBXHCI -> USBControl -> USBKbd -> USBMouse -> USBUHCI -> USBEHCI -> USBBoot$FG$.
+* $FG,2$Spawn() in .ZC kernel files.$FG$ Assignment like $FG,2$t = Spawn(...)$FG$ often hits $FG,2$Invalid lval at Spawn$FG$, and direct $FG,2$Spawn(...)$FG$ calls can fail too. Call init inline or spawn from $FG,2$StartOS$FG$/$FG,2$System$FG$ code only.
+* $FG,2$No bare no-arg kernel calls inside if (...).$FG$ $FG,2$if (UsbPollBgNeeded)$FG$ fails with $FG,2$Invalid lval$FG$; use a global flag or spawn from kernel boot code instead.
 * $FG,2$Local names vs globals.$FG$ Locals can clash with globals ($FG,2$speed$FG$ vs $FG,2$mouse.speed$FG$) — use distinct names ($FG,2$port_speed$FG$).
 * $FG,2$StrCompare$FG$, not $FG,2$StrCmp$FG$.
 * $FG,2$Shell typing ≠ compile rules.$FG$ Do $FG,2$not$FG$ type $FG,2$BootInsAuto;$FG$ at the prompt — autocomplete misparses it as $FG,2$BootIns.Auto$FG$. Use $FG,2$RebuildKernel;$FG$. This does $FG,2$not$FG$ mean compound identifiers like $FG,2$KbdCmdRead$FG$ or $FG,2$EpRingPost$FG$ need renaming; member access needs an explicit $FG,2$.$FG$ ($FG,2$usb.kbd_slot$FG$, $FG,2$offset(CXHCITrb.param)$FG$).
 * $FG,2$Function pointers need &$FG$ in callbacks: $FG,2$Spawn(&XhkWatchTask,, "USKWatch")$FG$.
+* $FG,2$No sys_usb_* compound names in StartOS.$FG$ ZealC may parse $FG,2$sys_usb_poll_bg$FG$ as $FG,2$sys_usb.poll_bg$FG$ ($FG,2$Invalid lval$FG$). Use a local $FG,2$I64$FG$ flag in $FG,2$StartOS.ZC$FG$ instead.
 * $FG,2$No usb.* in StartOS.$FG$ Kernel globals like $FG,2$usb.kbd_slot$FG$ are not visible to $FG,2$StartOS.ZC$FG$. Put multi-line $FG,2$UsbBootLast.DD$FG$ output in kernel ($FG,2$UsbBootLastWrite$FG$ from $FG,2$UsbBootInit$FG$).
 * $FG,2$Rebuild Kernel click$FG$ = reboot normally, then $FG,2$/Home/Once.ZC$FG$ rebuilds after the system server starts, then auto-reboots. Failed compile writes $FG,2$BootInsErrs.DD$FG$ and $FG,2$BootCompileLog.DD$FG$.
 
 $FG,5$Host sync (UTM qcow2)$FG$
-After editing $FG,2$Kernel/SerialDev/*.ZC$FG$, shut down the VM and run $FG,2$build/setup-utm-usb-test.sh$FG$ (or $FG,2$build/patch-utm-disk.sh$FG$). Patching sources alone does not update $FG,2$Kernel.ZXE$FG$ — you still need $FG,2$BootHDInsAuto; Reboot;$FG$ inside the guest.
+After editing $FG,2$Kernel/SerialDev/*.ZC$FG$, shut down the VM and run one of:
+* $FG,2$build/setup-utm-usb-ui.sh$FG$ — Input USB 3.0 in the UTM UI only, PS/2 Off, no Additional Arguments, and queue rebuild.
+* $FG,2$build/setup-utm-usb-test.sh$FG$ — same UI-only USB setup, with optional $FG,2$AUTO_NORMAL_REBUILD=1$FG$.
+Or $FG,2$build/patch-utm-disk.sh$FG$ to sync sources only. Patching sources alone does not update $FG,2$Kernel.ZXE$FG$ — you still need $FG,2$BootHDInsAuto; Reboot;$FG$ inside the guest.
 
 See $LK,"USBInput",A="FI:::/Demo/USBInput.ZC"$ demo and $LK,"UsbBootInit",A="MN:UsbBootInit"$.

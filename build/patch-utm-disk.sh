@@ -25,17 +25,19 @@ Kernel/KConfig.ZC
 Kernel/KMain.ZC
 Kernel/Kernel.PRJ
 Kernel/KernelA.HH
-Kernel/KernelC.HH
 Kernel/KDebug.ZC
 Kernel/PCI.ZC
 Kernel/BlkDev/DiskAddDev.ZC
 Kernel/SerialDev/MakeSerialDev.ZC
 Kernel/SerialDev/Mouse.ZC
 Kernel/SerialDev/USB.ZC
+Kernel/SerialDev/USBUHCI.ZC
+Kernel/SerialDev/USBEHCI.ZC
 Kernel/SerialDev/USBXHCI.ZC
 Kernel/SerialDev/USBControl.ZC
 Kernel/SerialDev/USBKbd.ZC
 Kernel/SerialDev/USBMouse.ZC
+Kernel/SerialDev/USBBoot.ZC
 Doc/Requirements.DD
 Doc/Strategy.DD
 Doc/WhyNotMore.DD
@@ -241,6 +243,10 @@ set_normal_rebuild_pending() {
 		echo "Creating ::/Home/NormalRebuildKernel.DD on partition $label (normal boot rebuild after system server starts)..."
 		mdel -i "$RAW@@${off}" ::/Home/BootInsPending.DD 2>/dev/null || true
 		mdel -i "$RAW@@${off}" ::/Home/.boot_ins_pending 2>/dev/null || true
+		mdel -i "$RAW@@${off}" ::/Home/BootInsStage.DD 2>/dev/null || true
+		mdel -i "$RAW@@${off}" ::/Home/BootInsErrs.DD 2>/dev/null || true
+		mdel -i "$RAW@@${off}" ::/Home/BootCompileLog.DD 2>/dev/null || true
+		mdel -i "$RAW@@${off}" ::/Home/UsbBootLast.DD 2>/dev/null || true
 		mdel -i "$RAW@@${off}" ::/Home/OnceRebuildKernel.DD 2>/dev/null || true
 		mdel -i "$RAW@@${off}" ::/Home/.once_rebuild_kernel 2>/dev/null || true
 		printf '1' | mcopy -o -i "$RAW@@${off}" - ::/Home/NormalRebuildKernel.DD
@@ -249,6 +255,22 @@ set_normal_rebuild_pending() {
 }
 set_normal_rebuild_pending "$PART1_OFF" "1"
 set_normal_rebuild_pending "$PART2_OFF" "2"
+
+set_usb_only_input() {
+	off=$1
+	label=$2
+	if [ "${USB_ONLY_INPUT:-1}" = 1 ]; then
+		echo "Creating ::/Home/UsbOnlyInput.DD on partition $label (skip PS/2 fallback)..."
+		printf '1' | mcopy -o -i "$RAW@@${off}" - ::/Home/UsbOnlyInput.DD
+		printf '1' | mcopy -o -i "$RAW@@${off}" - ::/Home/.usb_only_input
+	else
+		echo "Removing ::/Home/UsbOnlyInput.DD on partition $label (allow PS/2 fallback)..."
+		mdel -i "$RAW@@${off}" ::/Home/UsbOnlyInput.DD 2>/dev/null || true
+		mdel -i "$RAW@@${off}" ::/Home/.usb_only_input 2>/dev/null || true
+	fi
+}
+set_usb_only_input "$PART1_OFF" "1"
+set_usb_only_input "$PART2_OFF" "2"
 
 set_boot_ins_pending() {
 	off=$1
@@ -274,6 +296,7 @@ verify_one() {
 	local_sum=$(shasum -a 256 "$local" | awk '{print $1}')
 	p1="$TMPDIR/p1"
 	p2="$TMPDIR/p2"
+	rm -f "$p1" "$p2"
 	mcopy -i "$RAW@@${PART1_OFF}" "$dest" "$p1"
 	mcopy -i "$RAW@@${PART2_OFF}" "$dest" "$p2"
 	p1_sum=$(shasum -a 256 "$p1" | awk '{print $1}')
@@ -302,10 +325,13 @@ verify_one "System/BlkDev/DiskCheck.ZC"
 verify_one "System/Utils/ToTXT.ZC"
 verify_one "Compiler/BackLib.ZC"
 verify_one "Kernel/SerialDev/USBControl.ZC"
+verify_one "Kernel/SerialDev/USBUHCI.ZC"
+verify_one "Kernel/SerialDev/USBEHCI.ZC"
 verify_one "Kernel/SerialDev/USBXHCI.ZC"
 verify_one "Kernel/SerialDev/MakeSerialDev.ZC"
 verify_one "Kernel/SerialDev/USBMouse.ZC"
 verify_one "Kernel/SerialDev/USBKbd.ZC"
+verify_one "Kernel/SerialDev/USBBoot.ZC"
 if [ -n "$SYNC_HOME_KEY_PLUGINS" ]; then
 	local_sum=$(shasum -a 256 "$SRC_DIR/HomeKeyPlugIns.ZC" | awk '{print $1}')
 	if ! mcopy -i "$RAW@@${PART1_OFF}" -n ::/Home/HomeKeyPlugIns.ZC "$TMPDIR/homekey-override-p1" 2>/dev/null; then
@@ -334,12 +360,20 @@ echo "Done."
 if [ -n "$AUTO_NORMAL_REBUILD" ]; then
 	echo "Next boot: ZealOS should reach the desktop, /Home/Once.ZC should queue"
 	echo "a normal kernel rebuild after the system server starts, then reboot automatically."
-	echo "UTM: keep xHCI + USB Keyboard + USB Mouse enabled for input after that reboot."
+	if [ "${USB_ONLY_INPUT:-1}" = 1 ]; then
+		echo "UTM: keep Input USB = USB 3.0 (XHCI), PS/2 off, and no Additional Arguments."
+	else
+		echo "UTM recovery boot: keep Input USB = USB 3.0 (XHCI), turn PS/2 on, and no Additional Arguments."
+	fi
 elif [ -n "$AUTO_BOOT_INS" ]; then
 	echo "Next boot: StartOS should consume /Home/BootInsPending.DD and print"
 	echo "'Rebuilding kernel (USB skipped this boot for RAM)...'"
 	echo "then compile (~5-15 min) and reboot automatically. No mouse or keyboard required."
-	echo "UTM: keep xHCI + USB Keyboard + USB Mouse enabled for input after that reboot."
+	if [ "${USB_ONLY_INPUT:-1}" = 1 ]; then
+		echo "UTM: keep Input USB = USB 3.0 (XHCI), PS/2 off, and no Additional Arguments."
+	else
+		echo "UTM recovery boot: keep Input USB = USB 3.0 (XHCI), turn PS/2 on, and no Additional Arguments."
+	fi
 else
 	echo "Boot ZealOS, run BootHDInsAuto; then Reboot;"
 fi

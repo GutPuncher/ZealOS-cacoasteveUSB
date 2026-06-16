@@ -5,6 +5,9 @@
 #include "Keyboard"
 #include "USBKbd"
 #include "USBMouse"
+#include "USBUHCI"
+#include "USBEHCI"
 #include "Mouse"
 #include "Message"
+#include "USBBoot"
 #exe {Cd("..");};

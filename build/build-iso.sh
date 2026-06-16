@@ -54,6 +54,7 @@ verify_current_usb_tree() {
 	echo "Verifying staged USB input tree in $root ..."
 	require_same_file "../src/StartOS.ZC" "$root/StartOS.ZC"
 	require_same_file "../src/Kernel/SerialDev/USB.ZC" "$root/Kernel/SerialDev/USB.ZC"
+	require_same_file "../src/Kernel/SerialDev/USBEHCI.ZC" "$root/Kernel/SerialDev/USBEHCI.ZC"
 	require_same_file "../src/Kernel/SerialDev/USBControl.ZC" "$root/Kernel/SerialDev/USBControl.ZC"
 	require_same_file "../src/Kernel/SerialDev/USBKbd.ZC" "$root/Kernel/SerialDev/USBKbd.ZC"
 	require_same_file "../src/Kernel/SerialDev/USBMouse.ZC" "$root/Kernel/SerialDev/USBMouse.ZC"

@@ -1,0 +1,245 @@
+// Boot-time USB orchestration. Included last in MakeSerialDev.ZC so EhciCoreInit
+// and UsbCoreInit are both fully defined (no forward-decl stubs).
+
+public U0 UsbInputCoreInit()
+{
+	I64 uhci_active, ehci_active, xhci_active, best_score, best_backend;
+
+	sys_usb_input_active = 0;
+	MemSet(&usb, 0, sizeof(CUSBStateGlobals));
+	usb_debug_stage = 199;
+	UhciCoreInit;
+	uhci_active = sys_usb_input_active;
+
+	sys_usb_input_active = 0;
+	MemSet(&usb, 0, sizeof(CUSBStateGlobals));
+	usb_debug_stage = 200;
+	usb.ehci_debug_code = 0xE0FF;
+	EhciDebugSave;
+	EhciCoreInit;
+	ehci_active = sys_usb_input_active;
+
+	sys_usb_input_active = 0;
+	MemSet(&usb, 0, sizeof(CUSBStateGlobals));
+	UsbCoreInit;
+	xhci_active = sys_usb_input_active;
+
+	// UTM/Q35 can let UHCI enumerate companion devices while EHCI owns the
+	// usable UI path. Prefer EHCI when both claim the same input coverage.
+	best_score = UsbActiveScore(ehci_active);
+	best_backend = 1;
+	if (UsbActiveScore(uhci_active) > best_score)
+	{
+		best_score = UsbActiveScore(uhci_active);
+		best_backend = 0;
+	}
+	if (UsbActiveScore(xhci_active) > best_score)
+	{
+		best_score = UsbActiveScore(xhci_active);
+		best_backend = 2;
+	}
+
+	if (!best_score)
+		return;
+	sys_usb_input_active = 0;
+	MemSet(&usb, 0, sizeof(CUSBStateGlobals));
+	if (best_backend == 0)
+		UhciCoreInit;
+	else if (best_backend == 1)
+		EhciCoreInit;
+	else
+		UsbCoreInit;
+}
+
+public U0 UsbInit()
+{
+	sys_usb_suppress_single_step = 1;
+	UdSuspTitle("MouseRawWatcher");
+	UdSuspTitle("MouseHardDriverInstall");
+	UsbInputCoreInit;
+	if (!(sys_usb_input_active & UM))
+		UdResTitle("MouseRawWatcher");
+	if (!(sys_usb_input_active & UM))
+		UdResTitle("MouseHardDriverInstall");
+	if (!sys_usb_input_active)
+	{
+		sys_usb_suppress_single_step = 0;
+		DebugTrapsClear;
+	}
+	else
+	{
+		RFlagsSet(RFLAGG_NORMAL);
+		UsbIntrEnable;
+	}
+}
+
+U16 UsbBootUhciIn16(I64 ctlr, I64 off)
+{
+	if (ctlr < 0 || ctlr >= usb.uhci_ctlr_count)
+		return 0;
+	return UhciIn16(ctlr, off);
+}
+
+U32 UsbBootUhciIn32(I64 ctlr, I64 off)
+{
+	if (ctlr < 0 || ctlr >= usb.uhci_ctlr_count)
+		return 0;
+	return UhciIn32(ctlr, off);
+}
+
+U32 UsbBootMem32(U8 *p, I64 idx)
+{
+	if (!p)
+		return 0;
+	return *(p + idx * 4)(U32 *);
+}
+
+public U0 UsbBootLastWrite()
+{
+	U8 *st;
+	CDrive *drive;
+
+	st = MStrPrint("drv=usb-ui-uhci1 stage=%d active=0x%X irq=%d pci_srv=%d pci_bus=%d inst_att=%d cfg_len=%d iface_cls=%d ep0_mps=%d ep0_state=%d xfer_code=%d cmd_code=%d port=%d port_idx=%d speed=%d addr_code=%d deq_code=%d ehci=%d ehci_bdf=0x%X ehci_ports=%d ehci_port=%d ehci_portsc=0x%X ehci_code=0x%X ehci_dev_speed=%d ehci_dev_port=%d ehci_poll=%d poll=%d\n"
+				   "uhci active=%d ctlrs=%d dbg_ctlr=%d bdf=0x%X io=0x%X port=%d portsc=0x%X code=0x%X poll=%d ctrl=%d ctrl_poll=%d\n"
+				   "uhci_run cmd=0x%X sts=0x%X fr=%d fl=0x%X kqh=%08X/%08X ktd=%08X/%08X/%08X/%08X mqh=%08X/%08X mtd=%08X/%08X/%08X/%08X\n"
+				   "uhci_kbd ctlr=%d addr=%d ep=%d iface=%d max=%d pend=%d done=%d err=%d sts=0x%X kcnt=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
+				   "uhci_ms ctlr=%d addr=%d ep=%d iface=%d max=%d pend=%d done=%d err=%d sts=0x%X abs=%d seen=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
+				   "ehci_last stage=%d active=%d input=0x%X bdf=0x%X ports=%d port=%d portsc=0x%X code=0x%X\n"
+				   "ehci_kbd addr=%d ep=%d iface=%d port=%d speed=%d max=%d pend=%d done=%d err=%d token=0x%X kcnt=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
+				   "ehci_ms addr=%d ep=%d iface=%d port=%d speed=%d max=%d pend=%d done=%d err=%d token=0x%X abs=%d seen=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
+				   "kbd slot=%d dci=%d iface=%d ep=0x%X max=%d ring=0x%X phys=0x%X pend=%d sub=%d evt=%d rep=%d inj=%d len=%d code=%d fifo=%d kcnt=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
+				   "mouse slot=%d dci=%d iface=%d ep=0x%X max=%d abs=%d seen=%d last_abs=(%d,%d) ring=0x%X phys=0x%X pend=%d done=%d code=%d len=%d acc=(%d,%d,%d) bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n",
+				   usb_debug_stage, sys_usb_input_active, usb.irq, sys_pci_services, sys_pci_buses,
+				   mouse_hard.install_attempts, usb_debug_cfg_len, usb_debug_iface_cls,
+				   usb_debug_ep0_mps, usb_debug_ep0_state, usb_debug_xfer_code, usb_debug_cmd_code,
+				   usb_debug_root_port, usb_debug_port_idx, usb_debug_port_speed, usb_debug_addr_code, usb_debug_deq_code,
+				   usb.ehci_active, usb.ehci_bdf, usb.ehci_ports, usb.ehci_debug_port, usb.ehci_debug_portsc, usb.ehci_debug_code,
+				   usb.ehci_dev_speed, usb.ehci_dev_port, usb.ehci_poll_count, usb_debug_poll_count,
+				   usb.uhci_active, usb.uhci_ctlr_count, usb.uhci_debug_ctlr, usb.uhci_bdfs[usb.uhci_debug_ctlr],
+				   usb.uhci_ios[usb.uhci_debug_ctlr], usb.uhci_debug_port, usb.uhci_debug_portsc, usb.uhci_debug_code,
+				   usb.uhci_poll_count, usb.uhci_ctrl_poll, usb.uhci_ctrl_poll_count,
+				   UsbBootUhciIn16(usb.uhci_debug_ctlr, UHCI_REG_USBCMD),
+				   UsbBootUhciIn16(usb.uhci_debug_ctlr, UHCI_REG_USBSTS),
+				   UsbBootUhciIn16(usb.uhci_debug_ctlr, UHCI_REG_FRNUM),
+				   UsbBootUhciIn32(usb.uhci_debug_ctlr, UHCI_REG_FLBASEADD),
+				   UsbBootMem32(usb.uhci_kbd_qh, 0), UsbBootMem32(usb.uhci_kbd_qh, 1),
+				   UsbBootMem32(usb.uhci_kbd_td, 0), UsbBootMem32(usb.uhci_kbd_td, 1),
+				   UsbBootMem32(usb.uhci_kbd_td, 2), UsbBootMem32(usb.uhci_kbd_td, 3),
+				   UsbBootMem32(usb.uhci_ms_qh, 0), UsbBootMem32(usb.uhci_ms_qh, 1),
+				   UsbBootMem32(usb.uhci_ms_td, 0), UsbBootMem32(usb.uhci_ms_td, 1),
+				   UsbBootMem32(usb.uhci_ms_td, 2), UsbBootMem32(usb.uhci_ms_td, 3),
+				   usb.uhci_kbd_ctlr, usb.uhci_kbd_addr, usb.uhci_kbd_ep, usb.uhci_kbd_iface, usb.uhci_kbd_max_pkt,
+				   usb.uhci_kbd_pending, usb.uhci_kbd_done_count, usb.uhci_kbd_err_count, usb.uhci_kbd_last_sts, kbd.count,
+				   usb.kbd_last_bytes[0], usb.kbd_last_bytes[1], usb.kbd_last_bytes[2], usb.kbd_last_bytes[3],
+				   usb.kbd_last_bytes[4], usb.kbd_last_bytes[5], usb.kbd_last_bytes[6], usb.kbd_last_bytes[7],
+				   usb.uhci_ms_ctlr, usb.uhci_ms_addr, usb.uhci_ms_ep, usb.uhci_ms_iface, usb.uhci_ms_max_pkt,
+				   usb.uhci_ms_pending, usb.uhci_ms_done_count, usb.uhci_ms_err_count, usb.uhci_ms_last_sts, usb.ms_abs, usb.ms_abs_seen,
+				   usb.ms_last_bytes[0], usb.ms_last_bytes[1], usb.ms_last_bytes[2], usb.ms_last_bytes[3],
+				   usb.ms_last_bytes[4], usb.ms_last_bytes[5], usb.ms_last_bytes[6], usb.ms_last_bytes[7],
+				   usb_debug_ehci_stage, usb_debug_ehci_active, usb_debug_ehci_input, usb_debug_ehci_bdf,
+				   usb_debug_ehci_ports, usb_debug_ehci_port, usb_debug_ehci_portsc, usb_debug_ehci_code,
+				   usb.ehci_kbd_addr, usb.ehci_kbd_ep, usb.ehci_kbd_iface, usb.ehci_kbd_port, usb.ehci_kbd_speed,
+				   usb.ehci_kbd_max_pkt, usb.ehci_kbd_pending,
+				   usb.ehci_kbd_done_count, usb.ehci_kbd_err_count, usb.ehci_kbd_last_token, kbd.count,
+				   usb.kbd_last_bytes[0], usb.kbd_last_bytes[1], usb.kbd_last_bytes[2], usb.kbd_last_bytes[3],
+				   usb.kbd_last_bytes[4], usb.kbd_last_bytes[5], usb.kbd_last_bytes[6], usb.kbd_last_bytes[7],
+				   usb.ehci_ms_addr, usb.ehci_ms_ep, usb.ehci_ms_iface, usb.ehci_ms_port, usb.ehci_ms_speed,
+				   usb.ehci_ms_max_pkt, usb.ehci_ms_pending,
+				   usb.ehci_ms_done_count, usb.ehci_ms_err_count, usb.ehci_ms_last_token, usb.ms_abs, usb.ms_abs_seen,
+				   usb.ms_last_bytes[0], usb.ms_last_bytes[1], usb.ms_last_bytes[2], usb.ms_last_bytes[3],
+				   usb.ms_last_bytes[4], usb.ms_last_bytes[5], usb.ms_last_bytes[6], usb.ms_last_bytes[7],
+				   usb.kbd_slot, usb.kbd_dci, usb.kbd_iface, usb.kbd_ep, usb.kbd_max_pkt, usb.kbd_ring, usb.kbd_ring_phys, usb.kbd_pending,
+				   usb.kbd_submit_count, usb.kbd_evt_count, usb.kbd_report_count, usb.kbd_inject_count,
+				   usb.kbd_last_len, usb.kbd_last_code, FifoI64Count(kbd.scan_code_fifo), kbd.count,
+				   usb.kbd_last_bytes[0], usb.kbd_last_bytes[1], usb.kbd_last_bytes[2], usb.kbd_last_bytes[3],
+				   usb.kbd_last_bytes[4], usb.kbd_last_bytes[5], usb.kbd_last_bytes[6], usb.kbd_last_bytes[7],
+				   usb.ms_slot, usb.ms_dci, usb.ms_iface, usb.ms_ep, usb.ms_max_pkt, usb.ms_abs, usb.ms_abs_seen,
+				   usb.ms_last_abs_x, usb.ms_last_abs_y, usb.ms_ring, usb.ms_ring_phys, usb.ms_pending,
+				   usb.ms_xfer_done, usb.ms_xfer_code, usb.ms_xfer_len, usb.ms_acc_x, usb.ms_acc_y, usb.ms_acc_b,
+				   usb.ms_last_bytes[0], usb.ms_last_bytes[1], usb.ms_last_bytes[2], usb.ms_last_bytes[3],
+				   usb.ms_last_bytes[4], usb.ms_last_bytes[5], usb.ms_last_bytes[6], usb.ms_last_bytes[7]);
+	drive = Letter2Drive('C', FALSE);
+	if (drive && (drive->fs_type == FSt_FAT32 || drive->fs_type == FSt_REDSEA) &&
+			drive->bd && !(drive->bd->flags & BDF_READ_ONLY))
+	{
+		try
+		{
+			FileWrite("C:/Home/UsbBootLast.DD", st, StrLen(st));
+		}
+		catch
+		{
+			Fs->catch_except = TRUE;
+		}
+	}
+	Free(st);
+}
+
+public U0 UsbBootInit()
+{
+	I64 i;
+
+	if ((sys_usb_input_active & (UK | UM)) == (UK | UM))
+		return;
+	sys_usb_suppress_single_step = 1;
+	usb_verbose = 0;
+	UdSuspTitle("MouseRawWatcher");
+	UdSuspTitle("MouseHardDriverInstall");
+	usb_debug_stage = 900;
+	UsbBootLastWrite;
+	UsbInputCoreInit;
+	UsbBootLastWrite;
+	if (sys_usb_input_active & UK)
+		XhkIntrSub;
+	if (sys_usb_input_active & UM)
+		XhmIntrSub;
+	if ((usb.uhci_active || usb.ehci_active) && sys_usb_input_active)
+	{
+		for (i = 0; i < 100; i++)
+		{
+			UsbPollEvt;
+			if (usb.uhci_kbd_done_count || usb.uhci_ms_done_count ||
+					usb.ehci_kbd_done_count || usb.ehci_ms_done_count || kbd.count)
+				break;
+			Sleep(5);
+		}
+	}
+	else
+		UsbPollEvt;
+	// Poll-only at boot: IOAPIC remap in UsbIntrEnable broke timer/keyboard on xHCI.
+	// Use UdRun or UsbInit after the system is up to enable xHCI IRQs.
+	if (!(sys_usb_input_active & UM))
+		UdBgResume;
+	else
+		RFlagsSet(RFLAGG_NORMAL);
+	UdTrapsRel;
+	UsbBootLastWrite;
+}
+
+public U0 UsbPollBgTask()
+{
+	while (sys_usb_input_active)
+	{
+		UsbPollEvt;
+		Yield;
+	}
+}
+
+public U0 UdRun()
+{
+	sys_usb_suppress_single_step = 1;
+	usb_verbose = 0;
+	UdSuspTitle("MouseRawWatcher");
+	UdSuspTitle("MouseHardDriverInstall");
+	UsbInputCoreInit;
+	UsbIntrEnable;
+	"UdRun done: stage=%d active=0x%X cfg_len=%d iface_cls=%d ep0_mps=%d ep0_state=%d xfer_code=%d cmd_code=%d port=%d port_idx=%d speed=%d addr_code=%d deq_code=%d\n",
+		usb_debug_stage, sys_usb_input_active, usb_debug_cfg_len, usb_debug_iface_cls,
+		usb_debug_ep0_mps, usb_debug_ep0_state, usb_debug_xfer_code, usb_debug_cmd_code,
+		usb_debug_root_port, usb_debug_port_idx, usb_debug_port_speed, usb_debug_addr_code, usb_debug_deq_code;
+	UdBgResume;
+}
+
+public U0 UdWinResume()
+{
+	UdBgResume;
+}

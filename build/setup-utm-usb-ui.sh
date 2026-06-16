@@ -1,9 +1,11 @@
 #!/bin/sh
-# UTM USB input via the UI only (shut down VM first).
-#   1. Input USB = 3.0; PS/2 = Off.
-#   2. Additional Arguments are cleared.
-#   3. Optionally sync sources / queue rebuild (AUTO_NORMAL_REBUILD=1).
-#   4. Boot VM; build/check-utm-usb-boot.sh - expect active=0x3.
+# UTM "USB 3.0" UI input workflow (shut down VM first):
+#   1. Sets Input USB = 3.0, PS/2 = Off, clears Additional Arguments.
+#   2. Syncs USB sources and queues normal-boot kernel rebuild.
+#   3. Boot VM; wait for desktop, auto compile (~5-15 min), auto reboot.
+#   4. build/check-utm-usb-boot.sh — expect active=0x3, mouse abs=1 (tablet).
+#
+# Do NOT also set QEMU Additional Arguments (qemu-xhci etc.) — that duplicates HID.
 set -e
 
 UTM_BUNDLE="${UTM_BUNDLE:-$HOME/Library/Containers/com.utmapp.UTM/Data/Documents/ZealOS.utm}"
@@ -18,7 +20,7 @@ python3 - "$CONFIG" <<'PY'
 import plistlib, shutil, sys
 
 config_path = sys.argv[1]
-backup = config_path + ".before-usb-test"
+backup = config_path + ".before-usb-ui"
 shutil.copy2(config_path, backup)
 
 with open(config_path, "rb") as f:
@@ -40,11 +42,6 @@ print(f"Backup: {backup}")
 print("  Input USB: 3.0, PS/2: Off, Additional Arguments: (cleared)")
 PY
 
+export AUTO_NORMAL_REBUILD=1
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
-if [ "${AUTO_NORMAL_REBUILD:-0}" = 1 ]; then
-	export AUTO_NORMAL_REBUILD=1
-	exec "$SCRIPT_DIR/patch-utm-disk.sh"
-fi
-
-echo ""
-echo "UTM config updated. Boot the VM (no rebuild required if kernel already rebuilt)."
+exec "$SCRIPT_DIR/patch-utm-disk.sh"

@@ -504,6 +504,7 @@ extern			U0					 KbdMouseHandler(Bool poll_kbd, Bool poll_mouse);
 extern			U0					 KbdMouseInit();
 public extern			U0					 UsbInit();
 public extern			U0					 UsbBootInit();
+public extern			U0					 UsbPollBgTask();
 public extern			U0					 UsbIntrEnable();
 public extern			U0					 UdRun();
 public extern			U0					 UdWinResume();
@@ -700,7 +701,7 @@ public extern					I64		sys_num_spawned_tasks;
 extern							CTask	*sys_winmgr_task, *sys_task_being_screen_updated;
 
 #help_index "Task/Delay;Time/CPU Cycles"
-public extern	U0	Busy(I64 µS); //Loosely timed
+public extern	U0	Busy(I64 ∩┐╜S); //Loosely timed
 public extern	U0	PortNop(); //On the order of 1uS
 extern			I64	TimeCal();
 

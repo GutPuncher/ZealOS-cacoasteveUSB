@@ -20,7 +20,7 @@ A three button mouse is like a leg you cannot put weight on.	ZealOS primarily ju
 
 * No security or cryptography.
 
-* Least (greatest) common denominator hardware support.  Mostly, one driver for each device class.	We can't be in the business of different drivers.	Compatibility is the greatest challenge for PC operating systems.  Disk code does not use interrupts, avoiding compatibility risks.  $FG,2$USB$FG$ keyboard/mouse via xHCI with $FG,2$PS/2$FG$ fallback.
+* Least (greatest) common denominator hardware support.  Mostly, one driver for each device class.	We can't be in the business of different drivers.	Compatibility is the greatest challenge for PC operating systems.  Disk code does not use interrupts, avoiding compatibility risks.  $FG,2$USB$FG$ keyboard/mouse via xHCI plus minimal UHCI HID for UTM/QEMU PC UI input, with $FG,2$PS/2$FG$ fallback.
 
 * Updates whole screen at $FG,2$60 fps$FG$, optimized for full screen games where $FG,2$InvalidRectangle$FG$s are counter-productive.
 

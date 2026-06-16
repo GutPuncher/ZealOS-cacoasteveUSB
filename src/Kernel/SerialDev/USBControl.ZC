@@ -4,7 +4,6 @@ U32 *DevCtx(I64 slot, I64 dci)
 }
 
 U0 KbdCmdSend(I64 port, U8 val);
-U0 UsbPollEvt();
 
 U32 *DciCtx(I64 dci)
 {
@@ -66,7 +65,7 @@ U0 Ep0Doorbell(I64 slot)
 Bool Ep0Eval(I64 slot, I64 mps)
 {
 	CXHCITrb trb;
-	U32 *in_ctrl, *in_slot, *in_ep, *out_slot, *out_ep;
+	U32 *in_ctrl, *in_slot, *in_ep, *out_slot;
 
 	if (!mps)
 		mps = 8;
@@ -102,12 +101,6 @@ Bool Ep0Eval(I64 slot, I64 mps)
 		return FALSE;
 	}
 
-	out_ep = DevCtx(slot, 1);
-	out_ep[0] = in_ep[0];
-	out_ep[1] = in_ep[1];
-	out_ep[2] = in_ep[2];
-	out_ep[3] = in_ep[3];
-	out_ep[4] = in_ep[4];
 	usb_debug_ep0_mps = mps;
 	return TRUE;
 }
@@ -265,7 +258,93 @@ Bool UcGetDesc(I64 slot, U8 desc_type, U8 desc_index, I64 len, U8 *buf)
 		USB_REQ_GET_DESCRIPTOR, desc_type << 8 | desc_index, 0, len, buf);
 }
 
-U0 XhkIntrSub()
+Bool UcGetIfaceDesc(I64 slot, U8 desc_type, U8 desc_index, I64 iface, I64 len, U8 *buf)
+{
+	return UcXfer(slot, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_INTERFACE,
+		USB_REQ_GET_DESCRIPTOR, desc_type << 8 | desc_index, iface, len, buf);
+}
+
+I64 HidRptKind(U8 *rpt, I64 len)
+{
+	I64 i = 0, b, sz, typ, tag, val, page = 0, kind = UHID_KIND_NONE;
+
+	while (i < len)
+	{
+		b = rpt[i++];
+		if (b == 0xFE)
+		{
+			if (i >= len)
+				break;
+			sz = rpt[i++];
+			i++;
+			i += sz;
+		}
+		else
+		{
+			sz = b & 3;
+			if (sz == 3)
+				sz = 4;
+			typ = b >> 2;
+			typ &= 3;
+			tag = b >> 4;
+			tag &= 15;
+			if (i + sz > len)
+				break;
+			val = 0;
+			if (sz >= 1)
+				val |= rpt[i];
+			if (sz >= 2)
+				val |= rpt[i + 1] << 8;
+			if (sz >= 4)
+			{
+				val |= rpt[i + 2] << 16;
+				val |= rpt[i + 3] << 24;
+			}
+			if (typ == 1)
+			{
+				if (tag == 0)
+					page = val;
+			}
+			else if (typ == 2)
+			{
+				if (tag == 0)
+				{
+					if (page == 1)
+					{
+						if (val == 6)
+							return UHID_KIND_KBD;
+						if (val == 1 || val == 2)
+							kind = UHID_KIND_MOUSE;
+					}
+					else if (page == 0x0D)
+					{
+						if (val == 4 || val == 5)
+							kind = UHID_KIND_MOUSE;
+					}
+				}
+			}
+			i += sz;
+		}
+	}
+	return kind;
+}
+
+I64 UcHidRptKind(I64 slot, I64 iface, I64 rpt_len)
+{
+	U8 *buf;
+
+	if (rpt_len <= 0)
+		return UHID_KIND_NONE;
+	if (rpt_len > 512)
+		rpt_len = 512;
+	buf = usb.ctrl_buf + udma_hid_rpt;
+	MemSet(buf, 0, rpt_len);
+	if (!UcGetIfaceDesc(slot, USB_DESC_REPORT, 0, iface, rpt_len, buf))
+		return UHID_KIND_NONE;
+	return HidRptKind(buf, rpt_len);
+}
+
+public U0 XhkIntrSub()
 {
 	CXHCITrb trb;
 
@@ -285,7 +364,7 @@ U0 XhkIntrSub()
 	XHCIDoorbell(usb.kbd_slot, usb.kbd_dci);
 }
 
-U0 XhmIntrSub()
+public U0 XhmIntrSub()
 {
 	CXHCITrb trb;
 	U8 *buf;
@@ -315,8 +394,9 @@ I64 XHCIIntrIntervalCtx(I64 interval, I64 port_speed)
 {
 	I64 exp, step, uframes;
 
+	// QEMU HID devices sometimes report bInterval=0; xHCI needs a non-zero exponent.
 	if (interval < 1)
-		return 0;
+		interval = 10;
 
 	// High/SuperSpeed interrupt endpoints encode bInterval as 2^(n-1).
 	if (port_speed >= 3)
@@ -345,7 +425,7 @@ I64 XHCIIntrIntervalCtx(I64 interval, I64 port_speed)
 Bool HidEpSetup(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, Bool is_kbd, I64 interval, I64 port_speed)
 {
 	CXHCITrb trb;
-	U32 *in_ctrl, *in_slot, *in_ep, *out_ep, *dev_slot0;
+	U32 *in_ctrl, *in_slot, *in_ep, *dev_slot0;
 	U8 *ring;
 	U64 ring_phys;
 	I64 mask, entries;
@@ -421,22 +501,36 @@ Bool HidEpSetup(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, Bool is_
 	if (usb.cmd_comp_code != 1)
 		return FALSE;
 
-	dev_slot0[0] = in_slot[0];
-	dev_slot0[1] = in_slot[1];
-	dev_slot0[2] = in_slot[2];
-	dev_slot0[3] = in_slot[3];
-	out_ep = DevCtx(slot, dci);
-	out_ep[0] = in_ep[0];
-	out_ep[1] = in_ep[1];
-	out_ep[2] = in_ep[2];
-	out_ep[3] = in_ep[3];
-	out_ep[4] = in_ep[4];
-
 	return TRUE;
+}
+
+U0 HidMouseUnbind()
+{
+	if (!(sys_usb_input_active & UM))
+		return;
+	sys_usb_input_active &= ~UM;
+	usb.ms_slot = 0;
+	usb.ms_ep = 0;
+	usb.ms_dci = 0;
+	usb.ms_iface = 0;
+	usb.ms_max_pkt = 0;
+	usb.ms_ring = 0;
+	usb.ms_ring_phys = 0;
+	usb.ms_ring_idx = 0;
+	usb.ms_ring_cycle = 0;
+	usb.ms_pending = FALSE;
+	usb.ms_xfer_done = FALSE;
+	usb.ms_abs = FALSE;
+	usb.ms_abs_seen = FALSE;
+	usb.ms_acc_x = 0;
+	usb.ms_acc_y = 0;
+	usb.ms_acc_z = 0;
+	usb.ms_acc_b = 0;
 }
 
 Bool HidDevBind(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, I64 interval, I64 port_speed, I64 cfg_val, Bool is_kbd, Bool is_boot)
 {
+	Bool want_abs;
 	no_warn cfg_val;
 
 	if (!max_pkt)
@@ -472,11 +566,18 @@ Bool HidDevBind(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, I64 inte
 	}
 	else
 	{
+		want_abs = !is_boot && max_pkt >= 5;
 		if (sys_usb_input_active & UM)
-			return FALSE;
+		{
+			// UTM USB 3.0 UI adds both usb-mouse (boot/relative) and usb-tablet (abs).
+			if (usb.ms_abs || !want_abs)
+				return FALSE;
+			HidMouseUnbind;
+		}
 		usb_debug_stage = 32;
 		usb.ms_abs = FALSE;
-		if (max_pkt >= 5)
+		// Boot relative mouse (usb-mouse). Absolute tablet (usb-tablet) is non-boot, 5+ byte reports.
+		if (want_abs)
 			usb.ms_abs = TRUE;
 		if (is_boot)
 			UcProto(slot, iface, 0);
@@ -502,7 +603,7 @@ Bool HidDevBind(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, I64 inte
 U0 CfgParseHid(I64 slot, U8 *cfg, I64 len, I64 port_speed)
 {
 	I64 i = 0, iface = -1, ep_addr, max_pkt, proto, dci, interval, cfg_val = 1, x;
-	I64 cls = 0, sub = 0, desc_len;
+	I64 cls = 0, sub = 0, desc_len, rpt_len = 0, rpt_kind = UHID_KIND_NONE;
 	Bool try_kbd, try_mouse, boot_iface;
 
 	usb_debug_cfg_len = len;
@@ -526,9 +627,22 @@ U0 CfgParseHid(I64 slot, U8 *cfg, I64 len, I64 port_speed)
 				cls = cfg[i + 5];
 				sub = cfg[i + 6];
 				proto = cfg[i + 7];
+				rpt_len = 0;
+				rpt_kind = UHID_KIND_NONE;
 				usb_debug_iface_cls = cls;
 				if (cls == USB_CLASS_HID)
 					usb_debug_stage = 31;
+				break;
+
+			case USB_DESC_HID:
+				if (desc_len >= 9)
+				{
+					if (cfg[i + 6] == USB_DESC_REPORT)
+					{
+						rpt_len = cfg[i + 8] << 8;
+						rpt_len |= cfg[i + 7];
+					}
+				}
 				break;
 
 			case 5:
@@ -556,21 +670,28 @@ U0 CfgParseHid(I64 slot, U8 *cfg, I64 len, I64 port_speed)
 					try_kbd = TRUE;
 				else if (proto == USB_PROTO_MOUSE)
 					try_mouse = TRUE;
-				else if (sub == USB_SUBCLASS_BOOT)
+				else
+				{
+					if (rpt_len && rpt_kind == UHID_KIND_NONE)
+						rpt_kind = UcHidRptKind(slot, iface, rpt_len);
+					if (rpt_kind == UHID_KIND_KBD)
+						try_kbd = TRUE;
+					else if (rpt_kind == UHID_KIND_MOUSE)
+						try_mouse = TRUE;
+				}
+				if (!try_kbd && !try_mouse && sub == USB_SUBCLASS_BOOT)
 				{
 					if (max_pkt >= 8)
 						try_kbd = TRUE;
 					else if (max_pkt >= 4)
 						try_mouse = TRUE;
 				}
-				else if (!sub)
+				else if (!try_kbd && !try_mouse && !sub)
 				{
 					if (!proto)
 					{
-						// Report-protocol HID: 8-byte IN is usually keyboard; 4-7 is mouse/tablet.
-						if (max_pkt == 8)
-							try_kbd = TRUE;
-						else if (max_pkt >= 4)
+						// Report-protocol HID: 4+ byte IN is often mouse/tablet.
+						if (max_pkt >= 4)
 						{
 							if (max_pkt <= 16)
 								try_mouse = TRUE;
@@ -667,7 +788,7 @@ U0 UsbDevEnum(I64 slot, I64 port_speed)
 		usb_debug_stage = 45;
 }
 
-U0 UdSuspTitle(U8 *title)
+public U0 UdSuspTitle(U8 *title)
 {
 	I64		i;
 	CTask	*t, *start;
@@ -692,7 +813,7 @@ U0 UdSuspTitle(U8 *title)
 	}
 }
 
-U0 UdResTitle(U8 *title)
+public U0 UdResTitle(U8 *title)
 {
 	I64		i;
 	CTask	*t, *start;
@@ -716,57 +837,68 @@ U0 UdResTitle(U8 *title)
 
 U0 UsbPortScan()
 {
-	I64 port_idx, slot, port_speed, ps, active_before, sc;
+	I64 port_idx, slot, port_speed, ps, active_before, sc, pass;
 
 	if (!usb.ep0_ring)
 		usb.ep0_ring = XHCIAlloc(XHCI_RING_SIZE * 16, 64, &usb.ep0_ring_phys);
 
-	for (port_idx = 0; port_idx < usb.max_ports; port_idx++)
+	for (pass = 0; pass < 5; pass++)
 	{
-		if (sys_usb_input_active == 3)
-			break;
-
-		ps = XHCIPortRead(port_idx);
-		if (ps & 1 << XHCIPORT_CCS)
+		if (pass)
+			Sleep(100);
+		for (port_idx = 0; port_idx < usb.max_ports; port_idx++)
 		{
-			if (XHCIPortReset(port_idx))
+			if (sys_usb_input_active == (UK | UM))
+				break;
+
+			ps = XHCIPortRead(port_idx);
+			usb_debug_root_port = ps;
+			if (!(ps & 1 << XHCIPORT_PED))
 			{
-				ps = XHCIPortRead(port_idx);
-				if (ps & 1 << XHCIPORT_PED)
+				if (ps & 1 << XHCIPORT_CCS)
 				{
-					sc = ps >> 10;
-					sc &= 15;
-					port_speed = sc;
-					if (!port_speed)
-						port_speed = 1;
-					usb_debug_port_idx = port_idx;
-
-					slot = XHCIEnableSlot;
-					if (slot > 0)
-					{
-						*(usb.dcbaa + slot * sizeof(U64))(U64 *) = usb.dev_ctx_phys + slot * XHCI_CTX_SIZE;
-						MemSet(usb.dev_ctx + slot * XHCI_CTX_SIZE, 0, XHCI_CTX_SIZE);
-						XHCIEp0RingReset;
-
-						if (XHCIAddressDevice(slot, port_idx + 1, port_speed))
-						{
-							active_before = sys_usb_input_active;
-							UsbDevEnum(slot, port_speed);
-							if (sys_usb_input_active == active_before)
-								XHCIDisableSlot(slot);
-						}
-						else
-						{
-							if (usb_debug_addr_code != 1)
-								usb_debug_stage = 282;
-							else
-								usb_debug_stage = 283;
-							XHCIDisableSlot(slot);
-						}
-					}
+					if (XHCIPortReset(port_idx))
+						ps = XHCIPortRead(port_idx);
 				}
 			}
+			if (ps & 1 << XHCIPORT_PED || ps & 1 << XHCIPORT_CCS)
+			{
+				sc = ps >> 10;
+				sc &= 15;
+				port_speed = sc;
+				if (!port_speed)
+					port_speed = 1;
+				usb_debug_port_idx = port_idx;
+
+				slot = XHCIEnableSlot;
+				if (slot > 0)
+				{
+					*(usb.dcbaa + slot * sizeof(U64))(U64 *) = usb.dev_ctx_phys + slot * XHCI_CTX_SIZE;
+					MemSet(usb.dev_ctx + slot * XHCI_CTX_SIZE, 0, XHCI_CTX_SIZE);
+					XHCIEp0RingReset;
+
+					if (XHCIAddressDevice(slot, port_idx + 1, port_speed))
+					{
+						active_before = sys_usb_input_active;
+						UsbDevEnum(slot, port_speed);
+						if (sys_usb_input_active == active_before)
+							XHCIDisableSlot(slot);
+					}
+					else
+					{
+						if (usb_debug_addr_code != 1)
+							usb_debug_stage = 282;
+						else
+							usb_debug_stage = 283;
+						XHCIDisableSlot(slot);
+					}
+				}
+				else
+					usb_debug_stage = 284;
+			}
 		}
+		if (sys_usb_input_active == (UK | UM))
+			break;
 	}
 }
 
@@ -781,18 +913,19 @@ I64 UsbActiveScore(I64 active)
 	return 0;
 }
 
-U0 UsbCoreInit()
+public U0 UsbCoreInit()
 {
-	I64 n, bdf, best_n = -1, best_active = 0, active, class_code;
+	I64 n, bdf, best_n = -1, last_ok_n = -1, best_active = 0, active, class_code, next_bdf;
 	Bool any_addressed = FALSE;
 
 	sys_usb_input_active = 0;
 	usb_debug_stage = 1;
+	MemSet(&usb, 0, sizeof(CUSBStateGlobals));
 	class_code = PCIC_SERIAL << 16;
 	class_code |= PCISC_USB << 8;
 	class_code = class_code | PCIP_USB_XHCI;
 
-	// Try every xHCI controller (UTM UI + Additional Arguments can expose two).
+	// Try every xHCI controller; UI and host firmware configs can expose more than one.
 	for (n = 0; n < 8; n++)
 	{
 		bdf = PCIClassFind(class_code, n);
@@ -803,6 +936,7 @@ U0 UsbCoreInit()
 		usb_debug_stage = 10;
 		if (XHCIControllerInitBdf(bdf))
 		{
+			last_ok_n = n;
 			usb_debug_stage = 21;
 			UsbPortScan;
 			active = sys_usb_input_active;
@@ -811,7 +945,8 @@ U0 UsbCoreInit()
 				best_active = active;
 				best_n = n;
 			}
-			if (usb.active)
+			next_bdf = PCIClassFind(class_code, n + 1);
+			if (usb.active && next_bdf != -1)
 				XHCIReset;
 			if (active == (UK | UM))
 				break;
@@ -819,17 +954,18 @@ U0 UsbCoreInit()
 	}
 
 	if (best_n < 0)
-		return;
-	if (best_active == 0)
+		best_n = last_ok_n;
+	if (best_n < 0)
 		return;
 
-	// Re-init the controller that had the most HID bindings.
+	// Re-init the chosen controller and scan again (even if the probe pass bound nothing).
 	bdf = PCIClassFind(class_code, best_n);
 	sys_usb_input_active = 0;
 	MemSet(&usb, 0, sizeof(CUSBStateGlobals));
 	usb_debug_stage = 10;
 	if (!XHCIControllerInitBdf(bdf))
 		return;
+	Sleep(300);
 	usb_debug_stage = 21;
 	UsbPortScan;
 	any_addressed = sys_usb_input_active != 0;
@@ -839,10 +975,10 @@ U0 UsbCoreInit()
 
 	if (sys_usb_input_active)
 		usb_debug_stage = 30;
-		else if (usb_debug_stage < 31)
-			usb_debug_stage = 30;
-		else if (usb_debug_stage == 45)
-			usb_debug_stage = 30;
+	else if (usb_debug_stage < 31)
+		usb_debug_stage = 30;
+	else if (usb_debug_stage == 45)
+		usb_debug_stage = 30;
 
 	// active=0x2 with separate usb-kbd + usb-mouse on different ports means keyboard
 	// enumeration failed, not "keyboard on an unbound device". Keep USB mouse.
@@ -853,9 +989,9 @@ U0 UsbCoreInit()
 	}
 
 	if (sys_usb_input_active & UK)
-		XhkIntrSub();
+		XhkIntrSub;
 	if (sys_usb_input_active & UM)
-		XhmIntrSub();
+		XhmIntrSub;
 
 	if (sys_usb_input_active & UK)
 	{
@@ -872,6 +1008,7 @@ U0 UsbCoreInit()
 		mouse_hard.has_wheel = TRUE;
 		mouse_hard.enabled = TRUE;
 		mouse_hard.irqs_working = FALSE;
+		mouse_hard.install_attempts = 1;
 		OutU8(PIC_2_DATA, InU8(PIC_2_DATA) | 0x10);
 		try
 			KbdCmdSend(KBD_CTRL, KBDC_DISABLE_MS);
@@ -895,113 +1032,13 @@ public U0 UdTrapsRel()
 	DebugTrapsClear;
 }
 
-public U0 UsbInit()
-{
-	sys_usb_suppress_single_step = 1;
-	UdSuspTitle("MouseRawWatcher");
-	UdSuspTitle("MouseHardDriverInstall");
-	UsbCoreInit;
-	if (!(sys_usb_input_active & UM))
-		UdResTitle("MouseRawWatcher");
-	if (!(sys_usb_input_active & UM))
-		UdResTitle("MouseHardDriverInstall");
-	if (!sys_usb_input_active)
-	{
-		sys_usb_suppress_single_step = 0;
-		DebugTrapsClear;
-	}
-	else
-		RFlagsSet(RFLAGG_NORMAL);
-}
-
-U0 UsbBootLastWrite()
-{
-	U8 *st;
-	CDrive *drive;
-
-	st = MStrPrint("stage=%d active=0x%X cfg_len=%d iface_cls=%d ep0_mps=%d ep0_state=%d xfer_code=%d cmd_code=%d port=%d port_idx=%d speed=%d addr_code=%d deq_code=%d\n"
-				   "kbd slot=%d dci=%d iface=%d ep=0x%X max=%d ring=0x%X phys=0x%X pend=%d sub=%d evt=%d rep=%d inj=%d len=%d code=%d fifo=%d kcnt=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
-				   "mouse slot=%d dci=%d iface=%d ep=0x%X max=%d abs=%d ring=0x%X phys=0x%X pend=%d done=%d code=%d len=%d acc=(%d,%d,%d) bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n",
-				   usb_debug_stage, sys_usb_input_active, usb_debug_cfg_len, usb_debug_iface_cls,
-				   usb_debug_ep0_mps, usb_debug_ep0_state, usb_debug_xfer_code, usb_debug_cmd_code,
-				   usb_debug_root_port, usb_debug_port_idx, usb_debug_port_speed, usb_debug_addr_code, usb_debug_deq_code,
-				   usb.kbd_slot, usb.kbd_dci, usb.kbd_iface, usb.kbd_ep, usb.kbd_max_pkt, usb.kbd_ring, usb.kbd_ring_phys, usb.kbd_pending,
-				   usb.kbd_submit_count, usb.kbd_evt_count, usb.kbd_report_count, usb.kbd_inject_count,
-				   usb.kbd_last_len, usb.kbd_last_code, FifoI64Count(kbd.scan_code_fifo), kbd.count,
-				   usb.kbd_last_bytes[0], usb.kbd_last_bytes[1], usb.kbd_last_bytes[2], usb.kbd_last_bytes[3],
-				   usb.kbd_last_bytes[4], usb.kbd_last_bytes[5], usb.kbd_last_bytes[6], usb.kbd_last_bytes[7],
-				   usb.ms_slot, usb.ms_dci, usb.ms_iface, usb.ms_ep, usb.ms_max_pkt, usb.ms_abs, usb.ms_ring, usb.ms_ring_phys, usb.ms_pending,
-				   usb.ms_xfer_done, usb.ms_xfer_code, usb.ms_xfer_len, usb.ms_acc_x, usb.ms_acc_y, usb.ms_acc_b,
-				   usb.ms_last_bytes[0], usb.ms_last_bytes[1], usb.ms_last_bytes[2], usb.ms_last_bytes[3],
-				   usb.ms_last_bytes[4], usb.ms_last_bytes[5], usb.ms_last_bytes[6], usb.ms_last_bytes[7]);
-	// Live ISO + empty C: is normal (install from DVD). Only log to /Home on installed FAT/RedSea C:.
-	drive = Letter2Drive('C', FALSE);
-	if (drive)
-	{
-		if (drive->fs_type == FSt_FAT32 || drive->fs_type == FSt_REDSEA)
-		{
-			if (DriveIsWritable('C', FALSE))
-			{
-				try
-				{
-					FileWrite("C:/Home/UsbBootLast.DD", st, StrLen(st));
-				}
-				catch
-				{
-					Fs->catch_except = TRUE;
-				}
-			}
-		}
-	}
-	Free(st);
-}
-
-public U0 UsbBootInit()
-{
-	if (sys_usb_input_active)
-		return;
-	sys_usb_suppress_single_step = 1;
-	usb_verbose = 0;
-	UdSuspTitle("MouseRawWatcher");
-	UdSuspTitle("MouseHardDriverInstall");
-	UsbCoreInit;
-	if (sys_usb_input_active & UK)
-		XhkIntrSub();
-	if (sys_usb_input_active & UM)
-		XhmIntrSub();
-	UsbPollEvt();
-	// Poll via KbdMouseHandler/UsbPollEvt at boot; enabling IOAPIC here broke kbd/timer/WinMgr.
-	if (!(sys_usb_input_active & UM))
-		UdBgResume;
-	else
-		RFlagsSet(RFLAGG_NORMAL);
-	UdTrapsRel;
-	UsbBootLastWrite;
-}
-
 public U0 UsbIntrEnable()
 {
 	if (!sys_usb_input_active)
 		return;
+	if (usb.uhci_active)
+		return;
+	if (usb.ehci_active)
+		return;
 	XHCIInterruptsSetup;
-}
-
-public U0 UdRun()
-{
-	sys_usb_suppress_single_step = 1;
-	usb_verbose = 0;
-	UdSuspTitle("MouseRawWatcher");
-	UdSuspTitle("MouseHardDriverInstall");
-	UsbCoreInit;
-	UsbIntrEnable;
-	"UdRun done: stage=%d active=0x%X cfg_len=%d iface_cls=%d ep0_mps=%d ep0_state=%d xfer_code=%d cmd_code=%d port=%d port_idx=%d speed=%d addr_code=%d deq_code=%d\n",
-		usb_debug_stage, sys_usb_input_active, usb_debug_cfg_len, usb_debug_iface_cls,
-		usb_debug_ep0_mps, usb_debug_ep0_state, usb_debug_xfer_code, usb_debug_cmd_code,
-		usb_debug_root_port, usb_debug_port_idx, usb_debug_port_speed, usb_debug_addr_code, usb_debug_deq_code;
-	UdBgResume;
-}
-
-public U0 UdWinResume()
-{
-	UdBgResume;
 }

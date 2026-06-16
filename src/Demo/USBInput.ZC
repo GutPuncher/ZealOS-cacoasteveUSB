@@ -1,4 +1,4 @@
-// USB input debug demo. Lists xHCI controller and active USB input status.
+// USB input debug demo. Lists UHCI/EHCI/xHCI controllers and active USB input status.
 
 #define UK	1
 #define UM	2
@@ -19,12 +19,30 @@ U0 USBInputRep()
 
 	class_code = PCIC_SERIAL << 16;
 	class_code = class_code | (PCISC_USB << 8);
+	class_code = class_code | PCIP_USB_UHCI;
+	bdf = PCIClassFind(class_code, 0);
+	if (bdf == -1)
+		"No UHCI controller found.\n";
+	else
+		"UHCI BDF: 0x%X\n", bdf;
+
+	class_code = PCIC_SERIAL << 16;
+	class_code = class_code | (PCISC_USB << 8);
 	class_code = class_code | PCIP_USB_XHCI;
 	bdf = PCIClassFind(class_code, 0);
 	if (bdf == -1)
 		"No xHCI controller found.\n";
 	else
 		"xHCI BDF: 0x%X\n", bdf;
+
+	class_code = PCIC_SERIAL << 16;
+	class_code = class_code | (PCISC_USB << 8);
+	class_code = class_code | PCIP_USB_EHCI;
+	bdf = PCIClassFind(class_code, 0);
+	if (bdf == -1)
+		"No EHCI controller found.\n";
+	else
+		"EHCI BDF: 0x%X\n", bdf;
 
 }
 
@@ -36,8 +54,8 @@ U0 USBInput()
 	USBInputRep();
 	"\nInitializing native USB input...\n";
 	DebugTrapsClear;
-	UdRun();
-	UdBgResume();
+	UdRun;
+	UdBgResume;
 	"\nAfter USBInit (usb_debug_stage=%d active=0x%X):\n", usb_debug_stage, sys_usb_input_active;
 
 	USBInputRep();
@@ -45,7 +63,7 @@ U0 USBInput()
 	for (i = 0; i < 1000; i++)
 	{
 		if (sys_usb_input_active)
-			UsbPollEvt();
+			UsbPollEvt;
 		KbdMouseHandler(TRUE, TRUE);
 		Sleep(10);
 	}

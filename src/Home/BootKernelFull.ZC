@@ -1,6 +1,6 @@
 public U0 BootKernelFullRebuild()
 {
-	I64 errs = -1, size, log_size;
+	I64 errs = -1, size, log_size, was_srv;
 	U8 *st, *buf, *log;
 	CDoc *doc;
 
@@ -10,6 +10,9 @@ public U0 BootKernelFullRebuild()
 	Del("C:/Home/BootCompileLog.DD",, FALSE, FALSE);
 	FileWrite("C:/Home/BootInsStage.DD", "compile", 7);
 	"BootKernelFull: compiling /Kernel/Kernel\n";
+	was_srv = Bt(&sys_run_level, RLf_SYSTEM_SERVER);
+	if (!was_srv)
+		LBts(&sys_run_level, RLf_SYSTEM_SERVER);
 	try
 	{
 		errs = Comp("C:/Kernel/Kernel", "Kernel",, ':');
@@ -19,6 +22,8 @@ public U0 BootKernelFullRebuild()
 		Fs->catch_except = TRUE;
 		errs = -1;
 	}
+	if (!was_srv)
+		LBtr(&sys_run_level, RLf_SYSTEM_SERVER);
 	"BootKernelFull: Comp errs=%d\n", errs;
 
 	doc = DocPut;

@@ -486,8 +486,62 @@ Bool MouseHardDriverInstall(I64 dummy=0) //can be spawned
 	return mouse_hard.installed;
 }
 
+U0 KbdMousePortDrain(Bool poll_kbd, Bool poll_mouse)
+{
+	I32 status;
+	Bool use_ps2_mouse;
+	I64 guard;
+
+	// UTM PS/2 off + native USB: i8042 status can look permanently ready and spin forever.
+	if (sys_usb_input_active & UK)
+		poll_kbd = FALSE;
+	if (sys_usb_input_active & UM)
+		poll_mouse = FALSE;
+	if (!poll_kbd && !poll_mouse)
+		return;
+
+	guard = 0;
+	while (TRUE)
+	{
+		status = InU8(KBD_CTRL);
+		status &= 0x21;
+		if (!(status & 1))
+			break;
+		guard++;
+		if (guard > 256)
+			break;
+		if (status & 0x20)
+		{
+			use_ps2_mouse = FALSE;
+			if (poll_mouse)
+				if (mouse_hard.installed)
+					if (!mouse_hard.irqs_working)
+						if (!(sys_usb_input_active & UM))
+							use_ps2_mouse = TRUE;
+			if (use_ps2_mouse)
+				MouseHardPacketRead;
+			else
+				InU8(KBD_PORT);
+		}
+		else
+		{
+			if (poll_kbd)
+			{
+				if (sys_usb_input_active & UK)
+					InU8(KBD_PORT);
+				else
+					KbdPacketRead;
+			}
+			else
+				InU8(KBD_PORT);
+		}
+	}
+}
+
 U0 KbdMouseHandler(Bool poll_kbd, Bool poll_mouse)
 {
+	Bool use_ps2_mouse;
+
 	if (mouse_hard.install_in_progress)
 	{
 		Yield;
@@ -495,23 +549,30 @@ U0 KbdMouseHandler(Bool poll_kbd, Bool poll_mouse)
 	}
 	if (sys_usb_input_active && !usb.irq)
 		UsbPollEvt;
+	if (sys_usb_input_active & UM)
+		XhmAccFlush;
 	if (kbd.reset)
 		KbdMouseReset;
 	else
 	{
-		if (poll_mouse && mouse_hard.installed && !mouse_hard.irqs_working &&
-				!(sys_usb_input_active & UM))
+		use_ps2_mouse = FALSE;
+		if (poll_mouse)
+			if (mouse_hard.installed)
+				if (!mouse_hard.irqs_working)
+					if (!(sys_usb_input_active & UM))
+						use_ps2_mouse = TRUE;
+		if (use_ps2_mouse)
 		{
 			PUSHFD
 			CLI
-			while (InU8(KBD_CTRL) & 1)
-				MouseHardPacketRead;
+			KbdMousePortDrain(poll_kbd, poll_mouse);
 			POPFD
 		}
 
-		if (poll_kbd && !(sys_usb_input_active & UK))
-			while (InU8(KBD_CTRL) & 1)
-				KbdPacketRead;
+		KbdMousePortDrain(poll_kbd, poll_mouse);
+
+		if (sys_usb_input_active & UK)
+			KbdMessagesQueue;
 
 		if (kbd.reset)
 			KbdMouseReset;

@@ -15,14 +15,50 @@ fi
 FAIL=0
 ISSUES=0
 
+scan_pattern() {
+	pattern=$1
+	shift
+	if command -v rg >/dev/null 2>&1; then
+		rg -n "$pattern" "$@" 2>/dev/null || true
+		return
+	fi
+
+	glob="*"
+	paths=""
+	while [ $# -gt 0 ]; do
+		if [ "$1" = "--glob" ]; then
+			shift
+			glob=$1
+		else
+			paths="$paths
+$1"
+		fi
+		shift
+	done
+	printf '%s\n' "$paths" | while IFS= read -r path; do
+		[ -n "$path" ] || continue
+		if [ -d "$path" ]; then
+			find "$path" -type f -name "$glob" -exec perl -ne '
+				BEGIN { $pat = $ENV{"ZEALC_TRAP_PATTERN"}; }
+				if (/$pat/) { print "$ARGV:$.:$_"; }
+			' {} \;
+		elif [ -f "$path" ]; then
+			perl -ne '
+				BEGIN { $pat = $ENV{"ZEALC_TRAP_PATTERN"}; }
+				if (/$pat/) { print "$ARGV:$.:$_"; }
+			' "$path"
+		fi
+	done
+}
+
 check() {
 	name=$1
 	pattern=$2
 	shift 2
-	files=$(rg -l "$pattern" "$@" 2>/dev/null || true)
-	if [ -n "$files" ]; then
+	matches=$(ZEALC_TRAP_PATTERN="$pattern" scan_pattern "$pattern" "$@")
+	if [ -n "$matches" ]; then
 		echo "FAIL: $name"
-		rg -n "$pattern" "$@" 2>/dev/null || true
+		printf '%s\n' "$matches"
 		echo
 		FAIL=1
 		ISSUES=$((ISSUES + 1))
@@ -61,6 +97,10 @@ check "postfix inc/dec on deref" '\(\*\w+\)\+\+|--\(\*\w+\)|\(\*\w+\)--|\+\+\(\*
 # C-style casts are intentionally not checked here. A simple regex cannot
 # distinguish invalid "(U32 *)expr" from valid ZealC postfix casts "expr(U32 *)".
 
+# C-style ternary conditionals are not accepted by the ZealC kernel compiler.
+check "C ternary operator (? :)" '\?.*:' \
+	"$SRC_DIR/$SCOPE" --glob '*.ZC'
+
 # DevCtx(slot,0)[0]; use temp pointer
 check "DevCtx(...)[subscript]" 'DevCtx\([^)]+\)\[' \
 	"$SRC_DIR/$SCOPE" --glob '*.ZC'
@@ -69,8 +109,17 @@ check "DevCtx(...)[subscript]" 'DevCtx\([^)]+\)\[' \
 check "Spawn assignment in kernel" '=\s*Spawn\(' \
 	"$SRC_DIR/$SCOPE" --glob '*.ZC'
 
+# Spawn from kernel sources can parse/compile differently than StartOS/System code.
+check "Spawn call in kernel" '\bSpawn\(' \
+	"$SRC_DIR/$SCOPE" --glob '*.ZC'
+
 # StrCmp (use StrCompare)
 check "StrCmp (use StrCompare)" '\bStrCmp\b' \
+	"$SRC_DIR/$SCOPE" --glob '*.ZC'
+
+# reg is a keyword-like storage/register annotation; as a local variable it
+# can produce "Missing expression" at ordinary assignments.
+check "reserved local name reg" '^\s*(I64|U64|I32|U32|I16|U16|I8|U8)\s+[^;]*\breg\b' \
 	"$SRC_DIR/$SCOPE" --glob '*.ZC'
 
 # Risky USB* compound names in SerialDev (HolyC may split USB.Mouse).
@@ -79,18 +128,20 @@ if [ -d "$SRC_DIR/$SCOPE/SerialDev" ]; then
 else
 	USB_SCOPE="$SRC_DIR/$SCOPE"
 fi
-if rg -q '\bUSB[A-Z][a-zA-Z0-9_]+\s*\(' "$USB_SCOPE" --glob 'USB*.ZC' 2>/dev/null; then
+usb_warn=$(ZEALC_TRAP_PATTERN='\bUSB[A-Z][a-zA-Z0-9_]+\s*\(' scan_pattern '\bUSB[A-Z][a-zA-Z0-9_]+\s*\(' "$USB_SCOPE" --glob 'USB*.ZC')
+if [ -n "$usb_warn" ]; then
 	echo "WARN: USB* compound function names in SerialDev (review for USB.X parsing):"
-	rg -n '\bUSB[A-Z][a-zA-Z0-9_]+\s*\(' "$USB_SCOPE" --glob 'USB*.ZC' 2>/dev/null || true
+	printf '%s\n' "$usb_warn"
 	echo "(warnings do not fail the scan)"
 	echo
 fi
 
 # KConfig: interactive prompt code is still parsed even if hidden below returns.
 if [ -f "$SRC_DIR/Kernel/KConfig.ZC" ]; then
-	if rg -q "CharGet|StrGet|I64Get" "$SRC_DIR/Kernel/KConfig.ZC" 2>/dev/null; then
+	kconfig_hits=$(ZEALC_TRAP_PATTERN="CharGet|StrGet|I64Get" scan_pattern "CharGet|StrGet|I64Get" "$SRC_DIR/Kernel/KConfig.ZC")
+	if [ -n "$kconfig_hits" ]; then
 		echo "FAIL: KConfig still contains interactive prompt code"
-		rg -n "CharGet|StrGet|I64Get" "$SRC_DIR/Kernel/KConfig.ZC" 2>/dev/null || true
+		printf '%s\n' "$kconfig_hits"
 		echo
 		FAIL=1
 		ISSUES=$((ISSUES + 1))

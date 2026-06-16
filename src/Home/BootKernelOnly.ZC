@@ -1,14 +1,21 @@
 public U0 BootKernelOnlyReboot()
 {
-	I64 errs = -1, size;
-	U8 *st, *buf;
+	I64 errs = -1, size, log_size, was_srv;
+	U8 *st, *buf, *log;
+	CDoc *doc;
 
 	Cd("C:/");
 	Option(0, 1);
 	Del("C:/Home/BootAutoKernelConfig.DD",, FALSE, FALSE);
 	Del("C:/Home/BootInsErrs.DD",, FALSE, FALSE);
+	Del("C:/Home/BootCompileLog.DD",, FALSE, FALSE);
 	FileWrite("C:/Home/BootInsStage.DD", "compile", 7);
 	"BootKernelOnly: compiling /Kernel/Kernel\n";
+	// LexExcept calls Debug() before throw while still in boot phase; catch never
+	// runs if the debugger stops here. Pretend system server is up for Comp().
+	was_srv = Bt(&sys_run_level, RLf_SYSTEM_SERVER);
+	if (!was_srv)
+		LBts(&sys_run_level, RLf_SYSTEM_SERVER);
 	try
 	{
 		errs = Comp("C:/Kernel/Kernel", "Kernel",, ':');
@@ -18,8 +25,22 @@ public U0 BootKernelOnlyReboot()
 		Fs->catch_except = TRUE;
 		errs = -1;
 	}
+	if (!was_srv)
+		LBtr(&sys_run_level, RLf_SYSTEM_SERVER);
 	"BootKernelOnly: Comp errs=%d\n", errs;
-	st = MStrPrint("errs=%d\n", errs);
+
+	doc = DocPut;
+	if (doc)
+	{
+		log = DocSave(doc, &log_size);
+		if (log)
+		{
+			FileWrite("C:/Home/BootCompileLog.DD", log, log_size);
+			Free(log);
+		}
+	}
+
+	st = MStrPrint("errs=%d\nSee C:/Home/BootCompileLog.DD\n", errs);
 	FileWrite("C:/Home/BootInsErrs.DD", st, StrLen(st));
 	Free(st);
 	if (errs)

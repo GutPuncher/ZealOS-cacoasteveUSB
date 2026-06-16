@@ -1,6 +1,8 @@
 //Place this file in /Home and change
 //anything you want.
 
+Bool home_once_started = FALSE;
+
 U0 UserStartUp()
 {//Run each time a user a spawned
 	DocTermNew;
@@ -9,6 +11,12 @@ U0 UserStartUp()
 	WinToTop;
 	WinZBufUpdate;
 	Dir;
+	if (!home_once_started)
+	{
+		home_once_started = TRUE;
+		Cd("C:/Home");
+		ExeFile("C:/Home/Once");
+	}
 }
 
 U0 ServerStartUp()
@@ -29,7 +37,6 @@ U0 StartUpTasks()
 	WinToTop(user);
 	WinTileVert;
 	"Boot Time:%7.3fs\n", tS;
-	XTalk(user, "Cd; #include \"Once\";\n");
 	Silent; //no output to screen
 	// ACInit disabled for USB bring-up (ACDWordsLoad was hitting Bad MAlloc at boot).
 	// ACInit("/*;!*/Bible.TXT;!*/Clementine.TXT;!*/PCIDevices.DD;!*/HTML/*;!*/ChangeLog.DD");

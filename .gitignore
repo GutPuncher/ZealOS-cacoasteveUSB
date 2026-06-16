@@ -17,3 +17,5 @@
 /zealbooter/src/limine.h
 /zealbooter/bin
 /zealbooter/obj
+/build/*.iso
+/release/*.iso
