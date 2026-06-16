@@ -75,9 +75,122 @@ Bool XhmAbsRptOk(U8 *rpt, I64 len, I64 *off)
 	return TRUE;
 }
 
+Bool XhmBootMsBound()
+{
+	if (usb.ehci_active)
+	{
+		if (usb.ehci_ms_addr)
+			return TRUE;
+		return FALSE;
+	}
+	if (usb.uhci_active)
+	{
+		if (usb.uhci_ms_addr)
+			return TRUE;
+		return FALSE;
+	}
+	if (usb.ms_slot)
+		return TRUE;
+	return FALSE;
+}
+
+U0 XhmAbsWarp(I64 px, I64 py, I64 b)
+{
+	I64 x, y, l, r, last_b;
+
+	if (!(sys_usb_input_active & UM))
+		return;
+	last_b = usb.ms_last_btn & 7;
+	if (px == mouse.pos.x && py == mouse.pos.y && (b & 7) == last_b)
+		return;
+
+	l = b & 1;
+	r = (b & 2) >> 1;
+	mouse.offset.x = 0;
+	mouse.offset.y = 0;
+	x = px / mouse.scale.x;
+	y = py / mouse.scale.y;
+
+	mouse.presnap.x = ToI64(mouse.scale.x * x);
+	mouse.presnap.y = ToI64(mouse.scale.y * y);
+	if (mouse_grid.snap)
+	{
+		mouse.pos.x = Trunc(mouse.presnap.x / mouse_grid.x) * mouse_grid.x + mouse_grid.x_offset;
+		mouse.pos.y = Trunc(mouse.presnap.y / mouse_grid.y) * mouse_grid.y + mouse_grid.y_offset;
+	}
+	else
+	{
+		mouse.pos.x = mouse.presnap.x;
+		mouse.pos.y = mouse.presnap.y;
+	}
+	mouse.pos.x = ClampI64(mouse.pos.x, 0, sys_framebuffer_width - 1);
+	mouse.pos.y = ClampI64(mouse.pos.y, 0, sys_framebuffer_height - 1);
+	mouse.pos_text.x = mouse.pos.x / FONT_WIDTH;
+	if (mouse.pos_text.x >= text.cols)
+	{
+		mouse.pos_text.x = text.cols - 1;
+		mouse.pos.x = text.cols * FONT_WIDTH - 1;
+	}
+	mouse.pos_text.y = mouse.pos.y / FONT_HEIGHT;
+	if (mouse.pos_text.y >= text.rows)
+	{
+		mouse.pos_text.y = text.rows - 1;
+		mouse.pos.y = text.rows * FONT_HEIGHT - 1;
+	}
+	mouse.lb = l;
+	mouse.rb = r;
+	mouse.show = TRUE;
+	LBEqual(&kbd.scan_code, SCf_MS_L_DOWN, l);
+	LBEqual(&kbd.scan_code, SCf_MS_R_DOWN, r);
+
+	mouse_hard.timestamp = TSCGet;
+	mouse_hard.bttns[0] = l;
+	mouse_hard.bttns[1] = r;
+	mouse_hard.bttns[2] = (b & 4) != 0;
+	mouse_hard.prescale.x = x / mouse_hard.scale.x / mouse_grid.x_speed;
+	mouse_hard.prescale.y = y / mouse_hard.scale.y / mouse_grid.y_speed;
+	mouse_hard.pos.x = mouse.pos.x;
+	mouse_hard.pos.y = mouse.pos.y;
+	mouse_hard.event = TRUE;
+
+	usb.ms_acc_x = 0;
+	usb.ms_acc_y = 0;
+	usb.ms_acc_z = 0;
+	usb.ms_acc_b = b;
+	usb.ms_last_btn = b;
+}
+
+U0 XhmAbsBttns(I64 b)
+{
+	I64 l, r, last_b;
+
+	if (!(sys_usb_input_active & UM))
+		return;
+	last_b = usb.ms_last_btn & 7;
+	if ((b & 7) == last_b)
+		return;
+
+	l = b & 1;
+	r = (b & 2) >> 1;
+	mouse.lb = l;
+	mouse.rb = r;
+	mouse.show = TRUE;
+	LBEqual(&kbd.scan_code, SCf_MS_L_DOWN, l);
+	LBEqual(&kbd.scan_code, SCf_MS_R_DOWN, r);
+
+	mouse_hard.timestamp = TSCGet;
+	mouse_hard.bttns[0] = l;
+	mouse_hard.bttns[1] = r;
+	mouse_hard.bttns[2] = (b & 4) != 0;
+	mouse_hard.event = TRUE;
+
+	usb.ms_acc_b = b;
+	usb.ms_last_btn = b;
+}
+
 U0 XhmRptAbs(U8 *rpt, I64 len)
 {
-	I64 off, b, x, y, dx, dy, adx, ady, sw, sh, npx, npy, last_b;
+	I64 off, b, x, y, sw, sh, npx, npy, adx, ady;
 
 	if (!XhmAbsRptOk(rpt, len, &off))
 		return;
@@ -87,58 +200,66 @@ U0 XhmRptAbs(U8 *rpt, I64 len)
 	y = rpt[off + 3] | (rpt[off + 4] << 8);
 	sw = sys_framebuffer_width;
 	sh = sys_framebuffer_height;
-	if (sw < 640)
-		sw = 1024;
-	if (sh < 480)
-		sh = 768;
-	npx = x * sw / 32768;
-	npy = y * sh / 32768;
-	last_b = usb.ms_acc_b & 7;
-	if (!usb.ms_abs_seen)
-	{
-		usb.ms_abs_seen = TRUE;
-		usb.ms_last_abs_x = npx;
-		usb.ms_last_abs_y = npy;
-		usb.ms_acc_b = b;
-		return;
-	}
-	// Re-anchor on new button press (UTM focus grab) without cursor warp.
-	if (b & ~last_b & 7)
-	{
-		usb.ms_last_abs_x = npx;
-		usb.ms_last_abs_y = npy;
-		usb.ms_acc_x = 0;
-		usb.ms_acc_y = 0;
-		usb.ms_acc_b = b;
-		return;
-	}
-	dx = npx - usb.ms_last_abs_x;
-	dy = npy - usb.ms_last_abs_y;
-	adx = dx;
+	if (sw < 1)
+		sw = 640;
+	if (sh < 1)
+		sh = 480;
+	// QEMU usb-tablet: 0..32767 maps left->right, top->bottom.
+	if (sw > 1)
+		npx = x * (sw - 1) / 32767;
+	else
+		npx = 0;
+	if (sh > 1)
+		npy = y * (sh - 1) / 32767;
+	else
+		npy = 0;
+
+	adx = npx - usb.ms_last_abs_x;
 	if (adx < 0)
 		adx = -adx;
-	ady = dy;
+	ady = npy - usb.ms_last_abs_y;
 	if (ady < 0)
 		ady = -ady;
-	if (adx > sw / 3)
-	{
-		usb.ms_last_abs_x = npx;
-		usb.ms_last_abs_y = npy;
-		usb.ms_acc_b = b;
-		return;
-	}
-	if (ady > sh / 3)
-	{
-		usb.ms_last_abs_x = npx;
-		usb.ms_last_abs_y = npy;
-		usb.ms_acc_b = b;
-		return;
-	}
 	usb.ms_last_abs_x = npx;
 	usb.ms_last_abs_y = npy;
-	usb.ms_acc_x += dx;
-	usb.ms_acc_y += dy;
-	usb.ms_acc_b = b;
+
+	// Boot mouse + tablet are both bound.  Stay in relative mode while the
+	// host is driving usb-mouse; only return to tablet after rel quiet and
+	// the tablet position actually moves (UTM cursor off).
+	if (XhmBootMsBound())
+	{
+		if (!usb.ms_use_tab)
+		{
+			if (tS - usb.ms_rel_last_t < 0.35)
+				return;
+			if (adx < 4 && ady < 4)
+				return;
+			usb.ms_use_tab = TRUE;
+		}
+	}
+	if (!usb.ms_use_tab)
+		return;
+
+	adx = npx - mouse.pos.x;
+	if (adx < 0)
+		adx = -adx;
+	ady = npy - mouse.pos.y;
+	if (ady < 0)
+		ady = -ady;
+
+	usb.ms_rel_idle = 0;
+	usb.ms_acc_x = 0;
+	usb.ms_acc_y = 0;
+	usb.ms_acc_z = 0;
+	usb.ms_abs_seen = TRUE;
+
+	// Wrong tablet coords on click used to yank the cursor; apply buttons only.
+	if ((b & 7) && (adx > 20 || ady > 20))
+	{
+		XhmAbsBttns(b);
+		return;
+	}
+	XhmAbsWarp(npx, npy, b);
 }
 
 U0 XhmRptRel(U8 *rpt, I64 len)
@@ -173,9 +294,7 @@ U0 XhmRptRel(U8 *rpt, I64 len)
 	else
 		dy = rpt[y_idx];
 
-	usb.ms_acc_x += dx;
-	usb.ms_acc_y += dy;
-	usb.ms_acc_b = b;
+	dz = 0;
 	w_idx = off + 3;
 	if (len > w_idx)
 	{
@@ -184,8 +303,32 @@ U0 XhmRptRel(U8 *rpt, I64 len)
 			dz = wheel - 256;
 		else
 			dz = wheel;
-		usb.ms_acc_z += dz;
 	}
+
+	if (dx || dy || dz)
+	{
+		usb.ms_use_tab = FALSE;
+		usb.ms_rel_idle = 0;
+		usb.ms_rel_last_t = tS;
+	}
+	else if ((b & 7) != (usb.ms_last_btn & 7))
+	{
+		if (XhmBootMsBound())
+		{
+			usb.ms_use_tab = FALSE;
+			usb.ms_rel_last_t = tS;
+		}
+	}
+	else if (!usb.ms_use_tab)
+		usb.ms_rel_idle++;
+
+	if (usb.ms_use_tab)
+		return;
+
+	usb.ms_acc_x += dx;
+	usb.ms_acc_y += dy;
+	usb.ms_acc_b = b;
+	usb.ms_acc_z += dz;
 }
 
 U0 XhmRptHandleMode(U8 *rpt, I64 len, Bool abs_mode)

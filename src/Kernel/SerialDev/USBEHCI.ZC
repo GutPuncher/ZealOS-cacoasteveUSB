@@ -1185,6 +1185,8 @@ U0 EhciFinalizeInput()
 			Fs->catch_except = TRUE;
 		while (FifoU8Count(mouse_hard.fifo2))
 			FifoU8Remove(mouse_hard.fifo2, &b);
+		usb.ms_use_tab = usb.ehci_tab_addr != 0;
+		usb.ms_rel_idle = 0;
 	}
 	if (sys_usb_input_active)
 	{
@@ -1236,8 +1238,8 @@ public U0 EhciPollEvt()
 		return;
 	usb.ehci_poll_count++;
 	EhciHidPoll(TRUE);
-	EhciMsPoll(FALSE);
 	EhciMsPoll(TRUE);
+	EhciMsPoll(FALSE);
 	EhciIntrDone(TRUE);
 	EhciIntrDone(FALSE);
 	EhciIntrSubmit(TRUE);

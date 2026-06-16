@@ -777,6 +777,8 @@ U0 UhciFinalizeInput()
 		OutU8(PIC_2_DATA, InU8(PIC_2_DATA) | 0x10);
 		while (FifoU8Count(mouse_hard.fifo2))
 			FifoU8Remove(mouse_hard.fifo2, &b);
+		usb.ms_use_tab = usb.uhci_tab_addr != 0;
+		usb.ms_rel_idle = 0;
 	}
 	if (sys_usb_input_active)
 	{
@@ -1249,8 +1251,8 @@ public U0 UhciPollEvt()
 	if (usb.uhci_ctrl_poll)
 	{
 		UhciHidCtrlPoll(TRUE);
-		UhciMsCtrlPoll(FALSE);
 		UhciMsCtrlPoll(TRUE);
+		UhciMsCtrlPoll(FALSE);
 	}
 	else
 	{
