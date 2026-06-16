@@ -24,6 +24,7 @@
 #define USB_CTRL_BUF_SIZE	4096
 #define udma_ms				512
 #define udma_kbd			576
+#define udma_tab			640
 #define udma_ehci_data		2048
 #define udma_hid_rpt		3072
 
@@ -263,6 +264,14 @@ public class CUSBStateGlobals
 	U32		 ehci_ms_last_token;
 	F64		 ehci_ms_submit_t;
 	F64		 ehci_ms_last_poll;
+	I64		 ehci_tab_addr;
+	I64		 ehci_tab_ep;
+	I64		 ehci_tab_iface;
+	I64		 ehci_tab_mps;
+	I64		 ehci_tab_port;
+	I64		 ehci_tab_speed;
+	I64		 ehci_tab_max_pkt;
+	F64		 ehci_tab_last_poll;
 	I64		 ehci_poll_count;
 	F64		 ehci_boot_last_t;
 
@@ -320,6 +329,14 @@ public class CUSBStateGlobals
 	U32		 uhci_ms_last_sts;
 	F64		 uhci_ms_last_poll;
 	F64		 uhci_ms_submit_t;
+	I64		 uhci_tab_ctlr;
+	I64		 uhci_tab_addr;
+	I64		 uhci_tab_ep;
+	I64		 uhci_tab_iface;
+	I64		 uhci_tab_mps;
+	I64		 uhci_tab_max_pkt;
+	Bool	 uhci_tab_low;
+	F64		 uhci_tab_last_poll;
 	I64		 uhci_poll_count;
 	I64		 uhci_ctrl_poll;
 	I64		 uhci_ctrl_poll_count;

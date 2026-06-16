@@ -1,8 +1,7 @@
 public U0 BootKernelOnlyReboot()
 {
-	I64 errs = -1, size, log_size, was_srv;
-	U8 *st, *buf, *log;
-	CDoc *doc;
+	I64 errs = -1, size, was_srv;
+	U8 *st, *buf;
 
 	Cd("C:/");
 	Option(0, 1);
@@ -13,6 +12,7 @@ public U0 BootKernelOnlyReboot()
 	"BootKernelOnly: compiling /Kernel/Kernel\n";
 	// LexExcept calls Debug() before throw while still in boot phase; catch never
 	// runs if the debugger stops here. Pretend system server is up for Comp().
+	// DolDoc is not loaded yet ΓÇö do not call DocPut/DocSave here.
 	was_srv = Bt(&sys_run_level, RLf_SYSTEM_SERVER);
 	if (!was_srv)
 		LBts(&sys_run_level, RLf_SYSTEM_SERVER);
@@ -29,18 +29,7 @@ public U0 BootKernelOnlyReboot()
 		LBtr(&sys_run_level, RLf_SYSTEM_SERVER);
 	"BootKernelOnly: Comp errs=%d\n", errs;
 
-	doc = DocPut;
-	if (doc)
-	{
-		log = DocSave(doc, &log_size);
-		if (log)
-		{
-			FileWrite("C:/Home/BootCompileLog.DD", log, log_size);
-			Free(log);
-		}
-	}
-
-	st = MStrPrint("errs=%d\nSee C:/Home/BootCompileLog.DD\n", errs);
+	st = MStrPrint("errs=%d\n", errs);
 	FileWrite("C:/Home/BootInsErrs.DD", st, StrLen(st));
 	Free(st);
 	if (errs)

@@ -569,14 +569,14 @@ Bool HidDevBind(I64 slot, I64 iface, I64 ep_addr, I64 max_pkt, I64 dci, I64 inte
 		want_abs = !is_boot && max_pkt >= 5;
 		if (sys_usb_input_active & UM)
 		{
-			// UTM USB 3.0 UI adds both usb-mouse (boot/relative) and usb-tablet (abs).
-			if (usb.ms_abs || !want_abs)
+			if (!usb.ms_abs)
+				return FALSE;
+			if (want_abs)
 				return FALSE;
 			HidMouseUnbind;
 		}
 		usb_debug_stage = 32;
 		usb.ms_abs = FALSE;
-		// Boot relative mouse (usb-mouse). Absolute tablet (usb-tablet) is non-boot, 5+ byte reports.
 		if (want_abs)
 			usb.ms_abs = TRUE;
 		if (is_boot)

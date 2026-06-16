@@ -104,9 +104,11 @@ public U0 UsbBootLastWrite()
 				   "uhci_run cmd=0x%X sts=0x%X fr=%d fl=0x%X kqh=%08X/%08X ktd=%08X/%08X/%08X/%08X mqh=%08X/%08X mtd=%08X/%08X/%08X/%08X\n"
 				   "uhci_kbd ctlr=%d addr=%d ep=%d iface=%d max=%d pend=%d done=%d err=%d sts=0x%X kcnt=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
 				   "uhci_ms ctlr=%d addr=%d ep=%d iface=%d max=%d pend=%d done=%d err=%d sts=0x%X abs=%d seen=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
+				   "uhci_tab ctlr=%d addr=%d ep=%d iface=%d max=%d\n"
 				   "ehci_last stage=%d active=%d input=0x%X bdf=0x%X ports=%d port=%d portsc=0x%X code=0x%X\n"
 				   "ehci_kbd addr=%d ep=%d iface=%d port=%d speed=%d max=%d pend=%d done=%d err=%d token=0x%X kcnt=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
 				   "ehci_ms addr=%d ep=%d iface=%d port=%d speed=%d max=%d pend=%d done=%d err=%d token=0x%X abs=%d seen=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
+				   "ehci_tab addr=%d ep=%d iface=%d port=%d speed=%d max=%d\n"
 				   "kbd slot=%d dci=%d iface=%d ep=0x%X max=%d ring=0x%X phys=0x%X pend=%d sub=%d evt=%d rep=%d inj=%d len=%d code=%d fifo=%d kcnt=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n"
 				   "mouse slot=%d dci=%d iface=%d ep=0x%X max=%d abs=%d seen=%d last_abs=(%d,%d) ring=0x%X phys=0x%X pend=%d done=%d code=%d len=%d acc=(%d,%d,%d) bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n",
 				   usb_debug_stage, sys_usb_input_active, usb.irq, sys_pci_services, sys_pci_buses,
@@ -136,6 +138,7 @@ public U0 UsbBootLastWrite()
 				   usb.uhci_ms_pending, usb.uhci_ms_done_count, usb.uhci_ms_err_count, usb.uhci_ms_last_sts, usb.ms_abs, usb.ms_abs_seen,
 				   usb.ms_last_bytes[0], usb.ms_last_bytes[1], usb.ms_last_bytes[2], usb.ms_last_bytes[3],
 				   usb.ms_last_bytes[4], usb.ms_last_bytes[5], usb.ms_last_bytes[6], usb.ms_last_bytes[7],
+				   usb.uhci_tab_ctlr, usb.uhci_tab_addr, usb.uhci_tab_ep, usb.uhci_tab_iface, usb.uhci_tab_max_pkt,
 				   usb_debug_ehci_stage, usb_debug_ehci_active, usb_debug_ehci_input, usb_debug_ehci_bdf,
 				   usb_debug_ehci_ports, usb_debug_ehci_port, usb_debug_ehci_portsc, usb_debug_ehci_code,
 				   usb.ehci_kbd_addr, usb.ehci_kbd_ep, usb.ehci_kbd_iface, usb.ehci_kbd_port, usb.ehci_kbd_speed,
@@ -148,6 +151,7 @@ public U0 UsbBootLastWrite()
 				   usb.ehci_ms_done_count, usb.ehci_ms_err_count, usb.ehci_ms_last_token, usb.ms_abs, usb.ms_abs_seen,
 				   usb.ms_last_bytes[0], usb.ms_last_bytes[1], usb.ms_last_bytes[2], usb.ms_last_bytes[3],
 				   usb.ms_last_bytes[4], usb.ms_last_bytes[5], usb.ms_last_bytes[6], usb.ms_last_bytes[7],
+				   usb.ehci_tab_addr, usb.ehci_tab_ep, usb.ehci_tab_iface, usb.ehci_tab_port, usb.ehci_tab_speed, usb.ehci_tab_max_pkt,
 				   usb.kbd_slot, usb.kbd_dci, usb.kbd_iface, usb.kbd_ep, usb.kbd_max_pkt, usb.kbd_ring, usb.kbd_ring_phys, usb.kbd_pending,
 				   usb.kbd_submit_count, usb.kbd_evt_count, usb.kbd_report_count, usb.kbd_inject_count,
 				   usb.kbd_last_len, usb.kbd_last_code, FifoI64Count(kbd.scan_code_fifo), kbd.count,

@@ -413,17 +413,30 @@ Bool UhciHidBind(I64 ctlr, I64 addr, I64 mps, Bool low, I64 iface, I64 ep_addr, 
 	}
 
 	want_abs = !is_boot && max_pkt >= 5;
-	if (sys_usb_input_active & UM)
+	if (want_abs)
 	{
-		if (usb.ms_abs || !want_abs)
+		// UTM usb-tablet: absolute pointer for uncaptured (host) mode.
+		if (usb.uhci_tab_addr)
 			return FALSE;
-		sys_usb_input_active &= ~UM;
-		usb.uhci_ms_pending = FALSE;
+		if (is_boot)
+			UhciProto(ctlr, addr, mps, low, iface, 0);
+		usb.uhci_tab_ctlr = ctlr;
+		usb.uhci_tab_addr = addr;
+		usb.uhci_tab_ep = ep_addr & 0xF;
+		usb.uhci_tab_iface = iface;
+		usb.uhci_tab_mps = mps;
+		usb.uhci_tab_max_pkt = max_pkt;
+		usb.uhci_tab_low = low;
+		usb.uhci_tab_last_poll = 0;
+		if (!usb.uhci_ms_addr)
+			usb.ms_abs = TRUE;
+		sys_usb_input_active |= UM;
+		return TRUE;
 	}
+	if (usb.uhci_ms_addr)
+		return FALSE;
 	usb.ms_abs = FALSE;
 	usb.ms_abs_seen = FALSE;
-	if (want_abs)
-		usb.ms_abs = TRUE;
 	if (is_boot)
 		UhciProto(ctlr, addr, mps, low, iface, 0);
 	usb.uhci_ms_ctlr = ctlr;
@@ -614,8 +627,6 @@ U0 UhciPortsScan(I64 ctlr)
 
 	for (port = 0; port < 2; port++)
 	{
-		if (sys_usb_input_active == (UK | UM))
-			break;
 		if (UhciPortReset(ctlr, port))
 		{
 			low = usb.uhci_dev_low;
@@ -759,7 +770,7 @@ U0 UhciFinalizeInput()
 	{
 		mouse_hard.installed = TRUE;
 		mouse_hard.pkt_size = 4;
-		mouse_hard.has_wheel = TRUE;
+		mouse_hard.has_wheel = usb.uhci_ms_addr != 0;
 		mouse_hard.enabled = TRUE;
 		mouse_hard.irqs_working = FALSE;
 		mouse_hard.install_attempts = 1;
@@ -1011,6 +1022,62 @@ U0 UhciIntrWatchdog(Bool is_kbd)
 	UhciScheduleControlOnly;
 }
 
+U0 UhciMsCtrlPoll(Bool is_tab)
+{
+	I64 ctlr, addr, iface, max_pkt, mps, actual;
+	Bool low;
+	U8 *buf;
+	F64 *last_poll;
+
+	if (!(sys_usb_input_active & UM))
+		return;
+	if (is_tab)
+	{
+		ctlr = usb.uhci_tab_ctlr;
+		addr = usb.uhci_tab_addr;
+		iface = usb.uhci_tab_iface;
+		max_pkt = usb.uhci_tab_max_pkt;
+		mps = usb.uhci_tab_mps;
+		low = usb.uhci_tab_low;
+		buf = usb.ctrl_buf + udma_tab;
+		last_poll = &usb.uhci_tab_last_poll;
+	}
+	else
+	{
+		ctlr = usb.uhci_ms_ctlr;
+		addr = usb.uhci_ms_addr;
+		iface = usb.uhci_ms_iface;
+		max_pkt = usb.uhci_ms_max_pkt;
+		mps = usb.uhci_ms_mps;
+		low = usb.uhci_ms_low;
+		buf = usb.ctrl_buf + udma_ms;
+		last_poll = &usb.uhci_ms_last_poll;
+	}
+	if (!addr || !buf || !max_pkt)
+		return;
+	if (ctlr < 0 || ctlr >= usb.uhci_ctlr_count)
+		return;
+	if (tS - *last_poll < 0.02)
+		return;
+	*last_poll = tS;
+	if (max_pkt > 64)
+		max_pkt = 64;
+	MemSet(buf, 0, max_pkt);
+	if (!UhciCtrlXfer(ctlr, addr, mps, low, USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
+			USB_REQ_GET_REPORT, 1 << 8, iface, max_pkt, buf, 10))
+	{
+		if (is_tab)
+			return;
+		usb.uhci_ms_err_count++;
+		return;
+	}
+	usb.uhci_ctrl_poll_count++;
+	actual = max_pkt;
+	usb.uhci_ms_last_sts = 0xC700;
+	usb.uhci_ms_done_count++;
+	XhmRptHandleMode(buf, actual, is_tab);
+}
+
 U0 UhciHidCtrlPoll(Bool is_kbd)
 {
 	I64 ctlr, addr, iface, max_pkt, mps, actual;
@@ -1032,18 +1099,7 @@ U0 UhciHidCtrlPoll(Bool is_kbd)
 		last_poll = &usb.uhci_kbd_last_poll;
 	}
 	else
-	{
-		if (!(sys_usb_input_active & UM))
-			return;
-		ctlr = usb.uhci_ms_ctlr;
-		addr = usb.uhci_ms_addr;
-		iface = usb.uhci_ms_iface;
-		max_pkt = usb.uhci_ms_max_pkt;
-		mps = usb.uhci_ms_mps;
-		low = usb.uhci_ms_low;
-		buf = usb.ctrl_buf + udma_ms;
-		last_poll = &usb.uhci_ms_last_poll;
-	}
+		return;
 	if (!addr || !buf || !max_pkt)
 		return;
 	if (ctlr < 0 || ctlr >= usb.uhci_ctlr_count)
@@ -1070,12 +1126,6 @@ U0 UhciHidCtrlPoll(Bool is_kbd)
 		usb.uhci_kbd_last_sts = 0xC700;
 		usb.uhci_kbd_done_count++;
 		XhkRptHandle(buf, actual);
-	}
-	else
-	{
-		usb.uhci_ms_last_sts = 0xC700;
-		usb.uhci_ms_done_count++;
-		XhmRptHandle(buf, actual);
 	}
 }
 
@@ -1199,7 +1249,8 @@ public U0 UhciPollEvt()
 	if (usb.uhci_ctrl_poll)
 	{
 		UhciHidCtrlPoll(TRUE);
-		UhciHidCtrlPoll(FALSE);
+		UhciMsCtrlPoll(FALSE);
+		UhciMsCtrlPoll(TRUE);
 	}
 	else
 	{

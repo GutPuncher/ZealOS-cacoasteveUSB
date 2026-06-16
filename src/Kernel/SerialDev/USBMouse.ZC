@@ -188,16 +188,21 @@ U0 XhmRptRel(U8 *rpt, I64 len)
 	}
 }
 
-U0 XhmRptHandle(U8 *rpt, I64 len)
+U0 XhmRptHandleMode(U8 *rpt, I64 len, Bool abs_mode)
 {
 	if (len < 3)
 		return;
 
 	XhmRptDbg(rpt, len);
-	if (usb.ms_abs)
+	if (abs_mode)
 		XhmRptAbs(rpt, len);
 	else
 		XhmRptRel(rpt, len);
+}
+
+U0 XhmRptHandle(U8 *rpt, I64 len)
+{
+	XhmRptHandleMode(rpt, len, usb.ms_abs);
 }
 
 U0 XhmAccFlush()

@@ -26,8 +26,7 @@ public U0 BootKernelFullRebuild()
 		LBtr(&sys_run_level, RLf_SYSTEM_SERVER);
 	"BootKernelFull: Comp errs=%d\n", errs;
 
-	doc = DocPut;
-	if (doc)
+	if (doc = DocPut)
 	{
 		log = DocSave(doc, &log_size);
 		if (log)
@@ -37,7 +36,7 @@ public U0 BootKernelFullRebuild()
 		}
 	}
 
-	st = MStrPrint("errs=%d\nSee C:/Home/BootCompileLog.DD\n", errs);
+	st = MStrPrint("errs=%d\n", errs);
 	FileWrite("C:/Home/BootInsErrs.DD", st, StrLen(st));
 	Free(st);
 	if (errs)

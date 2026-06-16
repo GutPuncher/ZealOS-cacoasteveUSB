@@ -391,29 +391,27 @@ Bool EhciCtrlXferDev(I64 addr, I64 mps, I64 speed, I64 port, U8 req_type, U8 req
 	return ok;
 }
 
-Bool EhciHidPoll(Bool is_kbd)
+Bool EhciMsPoll(Bool is_tab)
 {
 	I64 addr, iface, max_pkt, mps, speed, port;
 	U8 *buf;
 	F64 *last_poll;
 
-	if (is_kbd)
+	if (!(sys_usb_input_active & UM))
+		return FALSE;
+	if (is_tab)
 	{
-		if (!(sys_usb_input_active & UK))
-			return FALSE;
-		addr = usb.ehci_kbd_addr;
-		iface = usb.ehci_kbd_iface;
-		max_pkt = usb.ehci_kbd_max_pkt;
-		mps = usb.ehci_kbd_mps;
-		speed = usb.ehci_kbd_speed;
-		port = usb.ehci_kbd_port;
-		buf = usb.ehci_kbd_buf;
-		last_poll = &usb.ehci_kbd_last_poll;
+		addr = usb.ehci_tab_addr;
+		iface = usb.ehci_tab_iface;
+		max_pkt = usb.ehci_tab_max_pkt;
+		mps = usb.ehci_tab_mps;
+		speed = usb.ehci_tab_speed;
+		port = usb.ehci_tab_port;
+		buf = usb.ctrl_buf + udma_tab;
+		last_poll = &usb.ehci_tab_last_poll;
 	}
 	else
 	{
-		if (!(sys_usb_input_active & UM))
-			return FALSE;
 		addr = usb.ehci_ms_addr;
 		iface = usb.ehci_ms_iface;
 		max_pkt = usb.ehci_ms_max_pkt;
@@ -435,22 +433,50 @@ Bool EhciHidPoll(Bool is_kbd)
 			USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
 			USB_REQ_GET_REPORT, 1 << 8, iface, max_pkt, buf, 10))
 	{
-		if (is_kbd)
-			usb.ehci_kbd_err_count++;
-		else
+		if (!is_tab)
 			usb.ehci_ms_err_count++;
 		return FALSE;
 	}
-	if (is_kbd)
+	usb.ehci_ms_done_count++;
+	XhmRptHandleMode(buf, max_pkt, is_tab);
+	return TRUE;
+}
+
+Bool EhciHidPoll(Bool is_kbd)
+{
+	I64 addr, iface, max_pkt, mps, speed, port;
+	U8 *buf;
+	F64 *last_poll;
+
+	if (!is_kbd)
+		return EhciMsPoll(FALSE);
+	if (!(sys_usb_input_active & UK))
+		return FALSE;
+	addr = usb.ehci_kbd_addr;
+	iface = usb.ehci_kbd_iface;
+	max_pkt = usb.ehci_kbd_max_pkt;
+	mps = usb.ehci_kbd_mps;
+	speed = usb.ehci_kbd_speed;
+	port = usb.ehci_kbd_port;
+	buf = usb.ehci_kbd_buf;
+	last_poll = &usb.ehci_kbd_last_poll;
+	if (!addr || !buf || !max_pkt)
+		return FALSE;
+	if (!mps)
+		mps = 64;
+	if (tS - *last_poll < 0.005)
+		return FALSE;
+	*last_poll = tS;
+	MemSet(buf, 0, max_pkt);
+	if (!EhciCtrlXferDev(addr, mps, speed, port,
+			USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
+			USB_REQ_GET_REPORT, 1 << 8, iface, max_pkt, buf, 10))
 	{
-		usb.ehci_kbd_done_count++;
-		XhkRptHandle(buf, max_pkt);
+		usb.ehci_kbd_err_count++;
+		return FALSE;
 	}
-	else
-	{
-		usb.ehci_ms_done_count++;
-		XhmRptHandle(buf, max_pkt);
-	}
+	usb.ehci_kbd_done_count++;
+	XhkRptHandle(buf, max_pkt);
 	return TRUE;
 }
 
@@ -753,17 +779,29 @@ Bool EhciHidBind(I64 addr, I64 mps, I64 iface, I64 ep_addr, I64 max_pkt, Bool is
 	}
 
 	want_abs = !is_boot && max_pkt >= 5;
-	if (sys_usb_input_active & UM)
+	if (want_abs)
 	{
-		if (usb.ms_abs || !want_abs)
+		if (usb.ehci_tab_addr)
 			return FALSE;
-		sys_usb_input_active &= ~UM;
-		usb.ehci_ms_pending = FALSE;
+		if (is_boot)
+			EhciProto(addr, mps, iface, 0);
+		usb.ehci_tab_addr = addr;
+		usb.ehci_tab_ep = ep_addr & 0xF;
+		usb.ehci_tab_iface = iface;
+		usb.ehci_tab_mps = mps;
+		usb.ehci_tab_port = usb.ehci_dev_port;
+		usb.ehci_tab_speed = usb.ehci_dev_speed;
+		usb.ehci_tab_max_pkt = max_pkt;
+		usb.ehci_tab_last_poll = 0;
+		if (!usb.ehci_ms_addr)
+			usb.ms_abs = TRUE;
+		sys_usb_input_active |= UM;
+		return TRUE;
 	}
+	if (usb.ehci_ms_addr)
+		return FALSE;
 	usb.ms_abs = FALSE;
 	usb.ms_abs_seen = FALSE;
-	if (want_abs)
-		usb.ms_abs = TRUE;
 	if (is_boot)
 		EhciProto(addr, mps, iface, 0);
 	usb.ehci_ms_qtd = EhciAlloc(EHCI_QTD_SIZE, 64, &usb.ehci_ms_qtd_phys);
@@ -961,8 +999,6 @@ U0 EhciPortsScan()
 
 	for (port = 0; port < usb.ehci_ports; port++)
 	{
-		if (sys_usb_input_active == (UK | UM))
-			break;
 		if (EhciPortReset(port))
 			EhciDevEnum(port);
 	}
@@ -1135,7 +1171,7 @@ U0 EhciFinalizeInput()
 	{
 		mouse_hard.installed = TRUE;
 		mouse_hard.pkt_size = 4;
-		mouse_hard.has_wheel = TRUE;
+		mouse_hard.has_wheel = usb.ehci_ms_addr != 0;
 		mouse_hard.enabled = TRUE;
 		mouse_hard.irqs_working = FALSE;
 		mouse_hard.install_attempts = 1;
@@ -1200,7 +1236,8 @@ public U0 EhciPollEvt()
 		return;
 	usb.ehci_poll_count++;
 	EhciHidPoll(TRUE);
-	EhciHidPoll(FALSE);
+	EhciMsPoll(FALSE);
+	EhciMsPoll(TRUE);
 	EhciIntrDone(TRUE);
 	EhciIntrDone(FALSE);
 	EhciIntrSubmit(TRUE);
