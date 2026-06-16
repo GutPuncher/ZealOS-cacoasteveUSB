@@ -109,6 +109,7 @@ rm -f ../src/Boot/Kernel.ZXE
 mount_tempdisk
 sudo mkdir -p "$TMPMOUNT/Tmp/OSBuild"
 sudo cp -r ../src/* "$TMPMOUNT/Tmp/OSBuild/"
+sudo rm -f "$TMPMOUNT/Tmp/OSBuild/Home/UsbBootLast.DD"
 verify_current_usb_tree "$TMPMOUNT/Tmp/OSBuild"
 umount_tempdisk
 

@@ -110,12 +110,14 @@ if (!normal_rebuild_pending)
 {
 	Silent;
 	I64 usb_try;
-	for (usb_try = 0; usb_try < 3 && (sys_usb_input_active & (UK | UM)) != (UK | UM); usb_try++)
+	for (usb_try = 0; usb_try < 6 && (sys_usb_input_active & (UK | UM)) != (UK | UM); usb_try++)
 	{
 		if (usb_try)
-			Sleep(500);
+			Sleep(1000);
 		UsbBootInit;
 	}
+	if ((sys_usb_input_active & (UK | UM)) != (UK | UM))
+		UsbBootRetrySpawn;
 	Silent(OFF);
 }
 else
@@ -152,6 +154,13 @@ WallPaperInit;
 
 if (DriveIsWritable)
 	DirMake("/Tmp"); //Good to have a Tmp
+else
+{
+	try
+		DirMake("/Tmp");
+	catch
+		Fs->catch_except = TRUE;
+}
 
 #exe {
 	Option(OPTf_WARN_PAREN, OFF);

@@ -175,7 +175,37 @@ public U0 UsbBootLastWrite()
 			Fs->catch_except = TRUE;
 		}
 	}
+	else
+	{
+		try
+		{
+			if (DriveIsWritable)
+				FileWrite("/Tmp/UsbBootLast.DD", st, StrLen(st));
+		}
+		catch
+		{
+			Fs->catch_except = TRUE;
+		}
+	}
 	Free(st);
+}
+
+U0 UsbBootRetryTask()
+{
+	I64 i;
+
+	for (i = 0; i < 10; i++)
+	{
+		Sleep(1000);
+		if ((sys_usb_input_active & (UK | UM)) == (UK | UM))
+			return;
+		UsbBootInit;
+	}
+}
+
+public U0 UsbBootRetrySpawn()
+{
+	Spawn(&UsbBootRetryTask, NULL, "USB Boot Retry");
 }
 
 public U0 UsbBootInit()

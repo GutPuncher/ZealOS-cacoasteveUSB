@@ -504,6 +504,7 @@ extern			U0					 KbdMouseHandler(Bool poll_kbd, Bool poll_mouse);
 extern			U0					 KbdMouseInit();
 public extern			U0					 UsbInit();
 public extern			U0					 UsbBootInit();
+public extern			U0					 UsbBootRetrySpawn();
 public extern			U0					 UsbPollBgTask();
 public extern			U0					 UsbIntrEnable();
 public extern			U0					 UdRun();
