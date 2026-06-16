@@ -1,0 +1,194 @@
+/* URL parser for ZealOS Browser
+   Public Domain */
+
+#define BROWSER_URL_LOADED
+
+#ifndef BROWSER_LOADED
+#include "Browser.HH"
+#endif
+
+U0 BrowserURLFree(CBrowserURL *url)
+{
+	if (!url)
+		return;
+	Free(url->host);
+	Free(url->path);
+	Free(url->query);
+	Free(url->full);
+	MemSet(url, 0, sizeof(CBrowserURL));
+}
+
+U8 *BrowserURLPathDir(U8 *path)
+{
+	U8 *slash, *result;
+
+	if (!path || !*path)
+		return StrNew("/");
+
+	slash = StrLastOcc(path, "/");
+	if (!slash)
+		return StrNew("/");
+
+	result = StrNew(path);
+	result[slash - path + 1] = 0;
+	return result;
+}
+
+I64 BrowserURLParse(U8 *url_str, CBrowserURL *out)
+{
+	U8	*work, *colon, *host_start, *path_start, *port_str, *query_start;
+	I64	 port = 0;
+
+	if (!url_str || !*url_str || !out)
+		return BROWSER_ERR_PARSE;
+
+	BrowserURLFree(out);
+	MemSet(out, 0, sizeof(CBrowserURL));
+	out->full = StrNew(url_str);
+	work = StrNew(url_str);
+
+	colon = StrFirstOcc(work, "://");
+	if (colon)
+	{
+		*colon = 0;
+		StrCopy(out->scheme, work);
+		host_start = colon + 3;
+	}
+	else
+	{
+		colon = StrFirstOcc(work, ":");
+		if (colon && colon[1] == '/')
+		{
+			*colon = 0;
+			StrCopy(out->scheme, work);
+			host_start = colon + 1;
+		}
+		else
+		{
+			StrCopy(out->scheme, "file");
+			host_start = work;
+		}
+	}
+
+	if (!StrICompare(out->scheme, "https"))
+	{
+		Free(work);
+		return BROWSER_ERR_HTTPS;
+	}
+
+	if (!StrICompare(out->scheme, "file"))
+	{
+		out->path = StrNew(host_start);
+		out->port = 0;
+		Free(work);
+		return BROWSER_ERR_NONE;
+	}
+
+	if (StrICompare(out->scheme, "http"))
+	{
+		Free(work);
+		return BROWSER_ERR_PARSE;
+	}
+
+	path_start = StrFirstOcc(host_start, "/");
+	query_start = StrFirstOcc(host_start, "?");
+
+	if (path_start)
+	{
+		query_start = StrFirstOcc(path_start, "?");
+		if (query_start)
+		{
+			out->query = StrNew(query_start + 1);
+			*query_start = 0;
+		}
+		out->path = StrNew(path_start);
+		*path_start = 0;
+	}
+	else if (query_start)
+	{
+		*query_start = 0;
+		out->path = StrNew("/");
+		out->query = StrNew(query_start + 1);
+	}
+	else
+		out->path = StrNew("/");
+
+	port_str = StrFirstOcc(host_start, ":");
+	if (port_str)
+	{
+		*port_str = 0;
+		port = Str2I64(port_str + 1);
+	}
+
+	out->host = StrNew(host_start);
+	if (port)
+		out->port = port;
+	else
+		out->port = 80;
+	Free(work);
+	return BROWSER_ERR_NONE;
+}
+
+U8 *BrowserURLResolve(U8 *href, CBrowserURL *base)
+{
+	U8			*result, *dir, *combined;
+
+	if (!href || !*href)
+		return NULL;
+
+	if (!StrICompare(href, "javascript:") || !StrNICompare(href, "javascript:", 11))
+		return NULL;
+
+	if (!StrNICompare(href, "http://", 7) || !StrNICompare(href, "https://", 8) ||
+		!StrNICompare(href, "file:", 5))
+		return StrNew(href);
+
+	if (href[0] == '/' && href[1] == '/')
+		return StrPrint(NULL, "http:%s", href);
+
+	if (base && !StrICompare(base->scheme, "file"))
+	{
+		if (href[0] == '/')
+			return StrPrint(NULL, "file:%s", href);
+
+		dir = BrowserURLPathDir(base->path);
+		result = StrPrint(NULL, "file:%s/%s", dir, href);
+		Free(dir);
+		return result;
+	}
+
+	if (!base || StrICompare(base->scheme, "http"))
+		return StrNew(href);
+
+	if (href[0] == '/')
+	{
+		if (base->query)
+			return StrPrint(NULL, "http://%s:%d%s?%s", base->host, base->port, href, base->query);
+		return StrPrint(NULL, "http://%s:%d%s", base->host, base->port, href);
+	}
+
+	if (href[0] == '#')
+		return StrNew(base->full);
+
+	dir = BrowserURLPathDir(base->path);
+	combined = StrPrint(NULL, "%s/%s", dir, href);
+	Free(dir);
+
+	result = StrPrint(NULL, "http://%s:%d%s", base->host, base->port, combined);
+	Free(combined);
+	return result;
+}
+
+U8 *BrowserURLCanonical(CBrowserURL *url)
+{
+	if (!url)
+		return NULL;
+
+	if (!StrICompare(url->scheme, "file"))
+		return StrPrint(NULL, "file:%s", url->path);
+
+	if (url->query)
+		return StrPrint(NULL, "http://%s:%d%s?%s", url->host, url->port, url->path, url->query);
+
+	return StrPrint(NULL, "http://%s:%d%s", url->host, url->port, url->path);
+}

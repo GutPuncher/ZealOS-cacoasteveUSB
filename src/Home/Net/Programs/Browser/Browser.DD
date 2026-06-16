@@ -1,0 +1,39 @@
+$BG,0$$FG,15$ZealOS Text Browser$FG,0$$BG,15$
+
+A text-only HTTP browser. No JavaScript. No HTTPS.
+
+$FG,2$Load$FG$
+
+	#include "C:/Home/Net/Programs/Browser/Run.ZC"
+
+For remote pages, configure networking first:
+
+	#include "C:/Home/Net/Start.ZC"
+
+$FG,2$Commands$FG$
+
+	HttpGet("http://example.com/");
+	  Download and print stripped text to the console.
+
+	Browser();
+	  Interactive browser with clickable links.
+
+	Browser("file:/Home/Net/Programs/Browser/TestFixtures/Sample.HTML");
+	  Open a specific URL.
+
+$FG,2$Keyboard shortcuts (interactive browser)$FG$
+
+	Alt+B — Back
+	Alt+F — Forward
+	Alt+R — Refresh
+	Alt+L — Location bar
+	Shift+Esc — Exit
+
+$FG,2$Network smoke test$FG$
+
+	#include "C:/Home/Net/Programs/Browser/Tests/HttpSmokeTest.ZC"
+	HttpSmokeTest("example.com", "/");
+
+$FG,2$Local test (no network)$FG$
+
+	BrowserLoadPlain("file:/Home/Net/Programs/Browser/TestFixtures/Sample.HTML");

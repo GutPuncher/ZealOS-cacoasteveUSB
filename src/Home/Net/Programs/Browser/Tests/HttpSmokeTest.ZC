@@ -1,0 +1,59 @@
+/* Phase 0 network smoke test ΓÇö manual HTTP GET
+   Run after #include "C:/Home/Net/Start.ZC"
+   Public Domain */
+
+Cd(__DIR__);;
+
+U0 HttpSmokeTest(U8 *host = "example.com", U8 *path = "/")
+{
+	CTCPSocket	*sock;
+	U8			 request[512], line[512];
+	I64			 lines = 0;
+
+	"\n$$FG,15$$HTTP Smoke Test$$FG$$\n";
+	"Connecting to %s...\n", host;
+
+	sock = TCPConnectionCreate(host, 80);
+	if (sock <= 0)
+	{
+		PrintErr("FAIL: TCPConnectionCreate failed.\n");
+		return;
+	}
+
+	sock(CTCPSocket *)->timeout = TCP_TIMEOUT * 3;
+
+	StrPrint(request, "GET %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n",
+		path, host);
+	TCPSocketSendString(sock, request);
+
+	"\nResponse headers:\n";
+	while (TCPSocketReceiveLine(sock, line, sizeof(line)) > 0)
+	{
+		if (!*line)
+			break;
+		"  %s\n", line;
+		lines++;
+		if (lines > 50)
+			break;
+	}
+
+	"\nBody preview:\n";
+	lines = 0;
+	while (TCPSocketReceive(sock, line, sizeof(line) - 1) > 0 && lines < 8)
+	{
+		line[sizeof(line) - 1] = 0;
+		"  %s\n", line;
+		lines++;
+	}
+
+	TCPSocketClose(sock);
+	"\n$$FG,2$$PASS: HTTP smoke test complete.$$FG$$\n\n";
+}
+
+DocMax;
+"\n\nHTTP Smoke Test loaded.\n\n"
+"After networking is configured, run:\n\n"
+"$$FG,2$HttpSmokeTest(\"example.com\", \"/\");$FG$\n\n"
+"Or test against a local server:\n\n"
+"$$FG,2$HttpSmokeTest(\"10.0.2.2\", \"/\");$FG$\n"
+"(host IP of python3 -m http.server on QEMU host)\n\n";

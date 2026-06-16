@@ -1,0 +1,150 @@
+/* Text-only HTTP browser UI for ZealOS
+   Public Domain */
+
+#define BROWSER_UI_LOADED
+
+#ifndef BROWSER_LOADED
+#include "Browser.HH"
+#endif
+
+#ifndef BROWSER_LOAD_MODULE
+#include "BrowserLoad"
+#endif
+
+CBrowser browser_state;
+
+U0 BrowserHistoryFree()
+{
+	I64 i;
+
+	for (i = 0; i < browser_state.history_len; i++)
+		Free(browser_state.history[i]);
+	browser_state.history_len = 0;
+	browser_state.history_pos = -1;
+}
+
+public U0 BrowserGo(U8 *url)
+{
+	if (!url || !*url)
+		return;
+	BrowserLoadURL(&browser_state, url);
+}
+
+U0 BrowserBack()
+{
+	if (browser_state.history_pos > 0)
+	{
+		browser_state.history_pos--;
+		BrowserLoadURL(&browser_state,
+			browser_state.history[browser_state.history_pos], FALSE);
+	}
+}
+
+U0 BrowserForward()
+{
+	if (browser_state.history_pos < browser_state.history_len - 1)
+	{
+		browser_state.history_pos++;
+		BrowserLoadURL(&browser_state,
+			browser_state.history[browser_state.history_pos], FALSE);
+	}
+}
+
+U0 BrowserRefresh()
+{
+	if (browser_state.current_url)
+		BrowserLoadURL(&browser_state, browser_state.current_url, FALSE);
+}
+
+U0 BrowserLocationBar()
+{
+	U8 *url, *prompt, *cur;
+
+	cur = browser_state.current_url;
+	if (!cur)
+		cur = "(none)";
+	prompt = MStrPrint("Enter URL (http:// or file:)\nCurrent: %s\n", cur);
+	url = PopUpGetStr(prompt);
+	Free(prompt);
+
+	if (url && *url)
+		BrowserGo(url);
+	Free(url);
+}
+
+public U0 Browser(U8 *start_url = NULL)
+{
+	I64 ch;
+
+	MemSet(&browser_state, 0, sizeof(CBrowser));
+	browser_state.doc = Fs->display_doc;
+	browser_state.history_pos = -1;
+
+	DocMax;
+	DocCursor(OFF);
+	StrCopy(Fs->task_title, "BROWSER");
+	Fs->border_src = BDS_CONST;
+	Fs->title_src = TTS_LOCKED_CONST;
+
+	SettingsPush;
+	MenuPush(
+		"Browser {"
+		" Back(,SCF_ALT+'b');"
+		" Forward(,SCF_ALT+'f');"
+		" Refresh(,SCF_ALT+'r');"
+		" Location(,SCF_ALT+'l');"
+		" Exit(,CH_SHIFT_ESC);"
+		"}"
+	);
+
+	DocClear(browser_state.doc, TRUE);
+	DocPrint(browser_state.doc,
+		"$$FG,15$$ZealOS Text Browser$$FG$$\n\n"
+		"HTTP only. No JavaScript. No HTTPS.\n\n");
+
+	if (start_url && *start_url)
+		BrowserGo(start_url);
+	else
+	{
+		U8 *url = PopUpGetStr("Enter starting URL:\n(e.g. file:/Home/Net/Programs/Browser/TestFixtures/Sample.HTML)\n");
+		if (url && *url)
+			BrowserGo(url);
+		Free(url);
+	}
+
+	while (TRUE)
+	{
+		ch = DocKeyGet;
+		switch (ch)
+		{
+			case CH_SHIFT_ESC:
+				goto browser_done;
+
+			case SCF_ALT + 'b':
+			case SCF_ALT + 'B':
+				BrowserBack;
+				break;
+
+			case SCF_ALT + 'f':
+			case SCF_ALT + 'F':
+				BrowserForward;
+				break;
+
+			case SCF_ALT + 'r':
+			case SCF_ALT + 'R':
+				BrowserRefresh;
+				break;
+
+			case SCF_ALT + 'l':
+			case SCF_ALT + 'L':
+				BrowserLocationBar;
+				break;
+		}
+	}
+
+browser_done:
+	MenuPop;
+	SettingsPop;
+	Free(browser_state.current_url);
+	BrowserHistoryFree;
+}

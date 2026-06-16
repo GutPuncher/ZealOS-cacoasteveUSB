@@ -1,0 +1,273 @@
+/* Page load orchestration for ZealOS Browser
+   Public Domain */
+
+#define BROWSER_LOAD_MODULE
+
+#ifndef BROWSER_LOADED
+#include "Browser.HH"
+#endif
+
+#ifndef BROWSER_URL_LOADED
+#include "URL"
+#endif
+
+#ifndef BROWSER_HTTP_LOADED
+#ifndef BROWSER_LOCAL_ONLY
+#include "HTTPClient"
+#else
+public I64 HTTPGetToFile(U8 *url_str, U8 *cache_path)
+{
+	return BROWSER_ERR_PARSE;
+}
+#endif
+#endif
+
+#ifndef BROWSER_HTML_LOADED
+#include "HTMLText"
+#endif
+
+U8 *BrowserErrorPage(I64 err, U8 *url)
+{
+	switch (err)
+	{
+		case BROWSER_ERR_HTTPS:
+			return StrPrint(NULL,
+				"$$FG,4$$HTTPS Not Supported$$FG$$\n\n"
+				"ZealOS has no cryptography stack.\n"
+				"URL: %s\n", url);
+
+		case BROWSER_ERR_PARSE:
+			return StrPrint(NULL,
+				"$$FG,4$$Invalid URL$$FG$$\n\n"
+				"Could not parse: %s\n", url);
+
+		case BROWSER_ERR_CONNECT:
+			return StrPrint(NULL,
+				"$$FG,4$$Connection Failed$$FG$$\n\n"
+				"Could not connect to server.\n"
+				"URL: %s\n", url);
+
+		case BROWSER_ERR_DNS:
+			return StrPrint(NULL,
+				"$$FG,4$$DNS Lookup Failed$$FG$$\n\n"
+				"Could not resolve hostname.\n"
+				"URL: %s\n", url);
+
+		case BROWSER_ERR_HTTP:
+			return StrPrint(NULL,
+				"$$FG,4$$HTTP Error$$FG$$\n\n"
+				"Invalid HTTP response.\n"
+				"URL: %s\n", url);
+
+		case BROWSER_ERR_FILE:
+			return StrPrint(NULL,
+				"$$FG,4$$File Error$$FG$$\n\n"
+				"Could not read or write cache file.\n"
+				"URL: %s\n", url);
+
+		case BROWSER_ERR_TOO_MANY_REDIRECTS:
+			return StrPrint(NULL,
+				"$$FG,4$$Too Many Redirects$$FG$$\n\n"
+				"Stopped after %d redirects.\n"
+				"URL: %s\n", BROWSER_MAX_REDIRECTS, url);
+
+		default:
+			if (err >= 400)
+				return StrPrint(NULL,
+					"$$FG,4$$HTTP %d$$FG$$\n\n"
+					"Server returned error status.\n"
+					"URL: %s\n", err, url);
+
+			return StrPrint(NULL,
+				"$$FG,4$$Browser Error %d$$FG$$\n\n"
+				"URL: %s\n", err, url);
+	}
+}
+
+U0 BrowserShowError(CDoc *doc, I64 err, U8 *url)
+{
+	U8 *page;
+
+	DocClear(doc);
+	page = BrowserErrorPage(err, url);
+	DocPrint(doc, "%s", page);
+	Free(page);
+}
+
+I64 BrowserFetchToCache(U8 *url_str, U8 **cache_path_out)
+{
+	CBrowserURL	url;
+	U8			*cache_path, *src_path;
+	I64			 err, status;
+
+	err = BrowserURLParse(url_str, &url);
+	if (err)
+	{
+		BrowserURLFree(&url);
+		return err;
+	}
+
+	DirMake(BROWSER_CACHE_DIR);
+	cache_path = BrowserCachePath(url_str);
+
+	if (!StrICompare(url.scheme, "file"))
+	{
+		src_path = url.path;
+		if (cache_path_out)
+			*cache_path_out = StrNew(src_path);
+		else
+			Free(cache_path);
+		BrowserURLFree(&url);
+		return BROWSER_ERR_NONE;
+	}
+
+	if (StrICompare(url.scheme, "http"))
+	{
+		Free(cache_path);
+		BrowserURLFree(&url);
+		return BROWSER_ERR_PARSE;
+	}
+
+	status = HTTPGetToFile(url_str, cache_path);
+	BrowserURLFree(&url);
+
+	if (status < 0)
+	{
+		Free(cache_path);
+		return status;
+	}
+
+	if (status >= 400)
+	{
+		Free(cache_path);
+		return status;
+	}
+
+	if (cache_path_out)
+		*cache_path_out = cache_path;
+	else
+		Free(cache_path);
+
+	return BROWSER_ERR_NONE;
+}
+
+I64 BrowserLoadURL(CBrowser *browser, U8 *url_str, Bool update_history = TRUE)
+{
+	CBrowserURL	url;
+	U8			*cache_path = NULL, *canonical;
+	I64			 err, i;
+
+	if (!browser || !browser->doc || !url_str)
+		return BROWSER_ERR_PARSE;
+
+	err = BrowserFetchToCache(url_str, &cache_path);
+	if (err)
+	{
+		BrowserShowError(browser->doc, err, url_str);
+		return err;
+	}
+
+	err = BrowserURLParse(url_str, &url);
+	if (err)
+	{
+		Free(cache_path);
+		BrowserShowError(browser->doc, err, url_str);
+		return err;
+	}
+
+	err = HTMLFileToDoc(cache_path, browser->doc, &url);
+	BrowserURLFree(&url);
+	Free(cache_path);
+
+	if (err)
+	{
+		BrowserShowError(browser->doc, err, url_str);
+		return err;
+	}
+
+	Free(browser->current_url);
+	browser->current_url = StrNew(url_str);
+
+	if (!update_history)
+		return BROWSER_ERR_NONE;
+
+	canonical = StrNew(url_str);
+	if (browser->history_pos < browser->history_len - 1)
+	{
+		for (i = browser->history_pos + 1; i < browser->history_len; i++)
+			Free(browser->history[i]);
+		browser->history_len = browser->history_pos + 1;
+	}
+
+	if (browser->history_len < BROWSER_HISTORY_MAX)
+	{
+		browser->history[browser->history_len++] = canonical;
+		browser->history_pos = browser->history_len - 1;
+	}
+	else
+	{
+		Free(browser->history[0]);
+		MemCopy(browser->history, browser->history + 1,
+			(BROWSER_HISTORY_MAX - 1) * sizeof(U8 *));
+		browser->history[BROWSER_HISTORY_MAX - 1] = canonical;
+		browser->history_pos = BROWSER_HISTORY_MAX - 1;
+		browser->history_len = BROWSER_HISTORY_MAX;
+	}
+
+	return BROWSER_ERR_NONE;
+}
+
+U0 BrowserPrintPlainError(I64 err, U8 *url)
+{
+	switch (err)
+	{
+		case BROWSER_ERR_HTTPS:
+			PrintErr("HTTPS not supported: %s\n", url);
+			break;
+		case BROWSER_ERR_PARSE:
+			PrintErr("Invalid URL: %s\n", url);
+			break;
+		case BROWSER_ERR_CONNECT:
+			PrintErr("Connection failed: %s\n", url);
+			break;
+		case BROWSER_ERR_FILE:
+			PrintErr("File error: %s\n", url);
+			break;
+		case BROWSER_ERR_TOO_MANY_REDIRECTS:
+			PrintErr("Too many redirects: %s\n", url);
+			break;
+		default:
+			if (err >= 400)
+				PrintErr("HTTP %d: %s\n", err, url);
+			else
+				PrintErr("Browser error %d: %s\n", err, url);
+			break;
+	}
+}
+
+public I64 BrowserLoadPlain(U8 *url_str)
+{
+	CBrowserURL	url;
+	U8			*cache_path = NULL;
+	I64			 err;
+
+	err = BrowserFetchToCache(url_str, &cache_path);
+	if (err)
+	{
+		BrowserPrintPlainError(err, url_str);
+		return err;
+	}
+
+	err = BrowserURLParse(url_str, &url);
+	if (err)
+	{
+		Free(cache_path);
+		BrowserPrintPlainError(err, url_str);
+		return err;
+	}
+
+	err = HTMLFileToPlain(cache_path, &url);
+	BrowserURLFree(&url);
+	Free(cache_path);
+	return err;
+}

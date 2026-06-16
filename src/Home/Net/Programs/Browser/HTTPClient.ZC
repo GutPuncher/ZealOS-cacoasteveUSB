@@ -1,0 +1,300 @@
+/* HTTP/1.0 GET client for ZealOS Browser
+   Public Domain */
+
+#define BROWSER_HTTP_LOADED
+
+#ifndef BROWSER_LOADED
+#include "Browser.HH"
+#endif
+
+#ifndef BROWSER_URL_LOADED
+#include "URL"
+#endif
+
+U0 HTTPResponseFree(CHTTPResponse *resp)
+{
+	if (!resp)
+		return;
+	Free(resp->content_type);
+	Free(resp->location);
+	Free(resp->body_path);
+	MemSet(resp, 0, sizeof(CHTTPResponse));
+}
+
+I64 HTTPHeaderValue(U8 *line, U8 *name, U8 **value_out)
+{
+	U8 *colon, *val;
+	I64 name_len;
+
+	if (!line || !name)
+		return -1;
+
+	name_len = StrLen(name);
+	if (StrNICompare(line, name, name_len))
+		return -1;
+
+	colon = line + name_len;
+	if (*colon != ':')
+		return -1;
+
+	val = colon + 1;
+	while (*val == ' ' || *val == '\t')
+		val++;
+
+	if (value_out)
+		*value_out = StrNew(val);
+	return 0;
+}
+
+I64 HTTPBodyReceive(CTCPSocket *sock, CFile *f, I64 content_length)
+{
+	U8	 buf[BLK_SIZE];
+	I64	 data_len = 0, total_len = 0, got, to_read;
+
+	progress4 = 0;
+
+	while (TRUE)
+	{
+		to_read = sizeof(buf) - data_len;
+		if (content_length >= 0 && total_len + to_read > content_length)
+			to_read = content_length - total_len;
+
+		if (content_length >= 0 && to_read <= 0)
+			break;
+
+		got = TCPSocketReceive(sock, buf + data_len, to_read);
+		if (got <= 0)
+		{
+			if (data_len && !FBlkWrite(f, buf))
+				return BROWSER_ERR_FILE;
+			if (data_len == 0 || got < 0)
+			{
+				f->de.size = total_len;
+				return total_len;
+			}
+			f->de.size = total_len;
+			return total_len;
+		}
+
+		data_len	+= got;
+		total_len	+= got;
+		progress4	+= got;
+		Yield;
+
+		if (content_length >= 0 && total_len >= content_length)
+		{
+			if (data_len && !FBlkWrite(f, buf))
+				return BROWSER_ERR_FILE;
+			f->de.size = total_len;
+			return total_len;
+		}
+
+		if (data_len == BLK_SIZE)
+		{
+			if (!FBlkWrite(f, buf))
+				return BROWSER_ERR_FILE;
+			data_len = 0;
+		}
+	}
+
+	if (data_len && !FBlkWrite(f, buf))
+		return BROWSER_ERR_FILE;
+
+	f->de.size = total_len;
+	return total_len;
+}
+
+I64 HTTPRequestOnce(CBrowserURL *url, U8 *dest_path, CHTTPResponse *resp)
+{
+	CTCPSocket	*sock;
+	CFile		*f;
+	U8			 line[BROWSER_LINE_MAX], *request, *path, *val;
+	I64			 status = 0, body_len, header_done = FALSE;
+	I64			 content_length = -1;
+
+	if (!url || !dest_path || !resp)
+		return BROWSER_ERR_PARSE;
+
+	HTTPResponseFree(resp);
+
+	if (StrICompare(url->scheme, "http"))
+		return BROWSER_ERR_PARSE;
+
+	path = url->path;
+	if (url->query)
+		path = StrPrint(NULL, "%s?%s", url->path, url->query);
+
+	sock = TCPConnectionCreate(url->host, url->port);
+	if (sock <= 0)
+	{
+		if (path != url->path)
+			Free(path);
+		return BROWSER_ERR_CONNECT;
+	}
+
+	sock(CTCPSocket *)->timeout = TCP_TIMEOUT * 3;
+
+	request = MStrPrint("GET %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n",
+		path, url->host);
+	TCPSocketSendString(sock, request);
+	Free(request);
+	if (path != url->path)
+		Free(path);
+
+	f = FOpen(dest_path, "w");
+	if (!f)
+	{
+		TCPSocketClose(sock);
+		return BROWSER_ERR_FILE;
+	}
+
+	while (TCPSocketReceiveLine(sock, line, sizeof(line)) > 0)
+	{
+		if (!header_done)
+		{
+			if (!status)
+			{
+				if (StrNICompare(line, "HTTP/", 5))
+				{
+					FClose(f);
+					TCPSocketClose(sock);
+					return BROWSER_ERR_HTTP;
+				}
+				status = Str2I64(StrFirstOcc(line, " ") + 1);
+				resp->status = status;
+				continue;
+			}
+
+			if (!*line)
+			{
+				header_done = TRUE;
+				break;
+			}
+
+			if (!HTTPHeaderValue(line, "Content-Type", &val))
+				resp->content_type = val;
+			else if (!HTTPHeaderValue(line, "Location", &val))
+				resp->location = val;
+			else if (!HTTPHeaderValue(line, "Content-Length", &val))
+			{
+				content_length = Str2I64(val);
+				resp->content_length = content_length;
+				Free(val);
+			}
+			continue;
+		}
+	}
+
+	if (!header_done)
+	{
+		FClose(f);
+		TCPSocketClose(sock);
+		return BROWSER_ERR_HTTP;
+	}
+
+	body_len = HTTPBodyReceive(sock, f, content_length);
+	FClose(f);
+	TCPSocketClose(sock);
+
+	if (body_len < 0)
+		return body_len;
+
+	resp->body_path = StrNew(dest_path);
+	return status;
+}
+
+U8 *BrowserCachePath(U8 *url_str)
+{
+	I64 hash = HashStr(url_str);
+	return StrPrint(NULL, "%s/%08X.html", BROWSER_CACHE_DIR, hash);
+}
+
+I64 HTTPGetToFile(U8 *url_str, U8 *dest_path)
+{
+	CBrowserURL	 url, redirect_url;
+	CHTTPResponse resp;
+	U8			*next_url, *resolved;
+	I64			 err, i, status;
+
+	err = BrowserURLParse(url_str, &url);
+	if (err)
+		return err;
+
+	if (!StrICompare(url.scheme, "file"))
+	{
+		BrowserURLFree(&url);
+		return BROWSER_ERR_NONE;
+	}
+
+	if (StrICompare(url.scheme, "http"))
+	{
+		BrowserURLFree(&url);
+		return BROWSER_ERR_PARSE;
+	}
+
+	next_url = StrNew(url_str);
+
+	for (i = 0; i < BROWSER_MAX_REDIRECTS; i++)
+	{
+		BrowserURLFree(&url);
+		err = BrowserURLParse(next_url, &url);
+		if (err)
+		{
+			Free(next_url);
+			return err;
+		}
+
+		status = HTTPRequestOnce(&url, dest_path, &resp);
+		if (status < 0)
+		{
+			Free(next_url);
+			HTTPResponseFree(&resp);
+			BrowserURLFree(&url);
+			return status;
+		}
+
+		if (status != 301 && status != 302 && status != 303 && status != 307)
+			break;
+
+		if (!resp.location)
+		{
+			Free(next_url);
+			HTTPResponseFree(&resp);
+			BrowserURLFree(&url);
+			return status;
+		}
+
+		resolved = BrowserURLResolve(resp.location, &url);
+		if (!resolved)
+		{
+			Free(next_url);
+			HTTPResponseFree(&resp);
+			BrowserURLFree(&url);
+			return BROWSER_ERR_PARSE;
+		}
+
+		err = BrowserURLParse(resolved, &redirect_url);
+		if (err)
+		{
+			Free(resolved);
+			Free(next_url);
+			HTTPResponseFree(&resp);
+			BrowserURLFree(&url);
+			return err;
+		}
+		BrowserURLFree(&redirect_url);
+
+		Free(next_url);
+		next_url = resolved;
+		HTTPResponseFree(&resp);
+	}
+
+	Free(next_url);
+	HTTPResponseFree(&resp);
+	BrowserURLFree(&url);
+
+	if (i >= BROWSER_MAX_REDIRECTS)
+		return BROWSER_ERR_TOO_MANY_REDIRECTS;
+
+	return status;
+}

@@ -1,0 +1,479 @@
+/* HTML-to-text extractor for ZealOS Browser
+   Public Domain */
+
+#define BROWSER_HTML_LOADED
+
+#ifndef BROWSER_LOADED
+#include "Browser.HH"
+#endif
+
+#ifndef BROWSER_URL_LOADED
+#include "URL"
+#endif
+
+Bool HTMLTagIsSkip(U8 *tag)
+{
+	if (!tag || !*tag)
+		return FALSE;
+
+	if (!StrICompare(tag, "script") || !StrICompare(tag, "style") ||
+		!StrICompare(tag, "noscript") || !StrICompare(tag, "head") ||
+		!StrICompare(tag, "meta") || !StrICompare(tag, "iframe") ||
+		!StrICompare(tag, "object") || !StrICompare(tag, "title"))
+		return TRUE;
+
+	return FALSE;
+}
+
+Bool HTMLTagIsBlock(U8 *tag)
+{
+	if (!tag || !*tag)
+		return FALSE;
+
+	if (!StrICompare(tag, "p") || !StrICompare(tag, "div") ||
+		!StrICompare(tag, "br") || !StrICompare(tag, "hr") ||
+		!StrICompare(tag, "li") || !StrICompare(tag, "pre") ||
+		!StrICompare(tag, "tr") || !StrICompare(tag, "h1") ||
+		!StrICompare(tag, "h2") || !StrICompare(tag, "h3") ||
+		!StrICompare(tag, "h4") || !StrICompare(tag, "h5") ||
+		!StrICompare(tag, "h6"))
+		return TRUE;
+
+	return FALSE;
+}
+
+#define HTML_CH_DOLLAR	36
+
+U0 HTMLPrintEscaped(U8 *txt, Bool dol_doc)
+{
+	U8 *cur;
+	I64 offending;
+
+	if (!txt)
+		return;
+
+	while (TRUE)
+	{
+		cur = StrFirstOcc(txt, "$\"\\");
+		if (!cur)
+			break;
+		offending = *cur;
+		*cur = 0;
+		if (offending == HTML_CH_DOLLAR)
+		{
+			if (dol_doc)
+				"%s$$$$", txt;
+			else
+				"%s$$", txt;
+		}
+		else if (offending == '\\')
+		{
+			if (dol_doc)
+				"%s\\\\", txt;
+			else
+				"%s\\", txt;
+		}
+		else
+		{
+			if (dol_doc)
+				"%s\\\"", txt;
+			else
+				"%s\"", txt;
+		}
+		txt = cur + 1;
+	}
+
+	"%s", txt;
+}
+
+U0 HTMLEntityDecode(U8 *dst, U8 *src, I64 dst_size)
+{
+	U8 *d, *s, *semi, *num;
+	I64 code, n;
+
+	d = dst;
+	s = src;
+	dst_size--;
+
+	while (*s && d - dst < dst_size)
+	{
+		if (*s != '&')
+		{
+			*d++ = *s++;
+			continue;
+		}
+
+		semi = StrFirstOcc(s, ";");
+		if (!semi)
+		{
+			*d++ = *s++;
+			continue;
+		}
+
+		n = semi - s;
+		if (!StrNICompare(s, "&amp", n) && n == 4)
+			*d++ = '&';
+		else if (!StrNICompare(s, "&lt", n) && n == 3)
+			*d++ = '<';
+		else if (!StrNICompare(s, "&gt", n) && n == 3)
+			*d++ = '>';
+		else if (!StrNICompare(s, "&quot", n) && n == 5)
+			*d++ = '"';
+		else if (!StrNICompare(s, "&#x", 3) && n > 3)
+		{
+			num = s + 3;
+			code = 0;
+			while (num < semi)
+			{
+				if (*num >= '0' && *num <= '9')
+					code = code * 16 + *num - '0';
+				else if (*num >= 'a' && *num <= 'f')
+					code = code * 16 + *num - 'a' + 10;
+				else if (*num >= 'A' && *num <= 'F')
+					code = code * 16 + *num - 'A' + 10;
+				else
+					break;
+				num++;
+			}
+			if (code > 0 && code < 256)
+				*d++ = code.u8[0];
+		}
+		else if (!StrNICompare(s, "&#", 2) && n > 2)
+		{
+			num = s + 2;
+			code = 0;
+			while (num < semi)
+			{
+				if (*num >= '0' && *num <= '9')
+					code = code * 10 + *num - '0';
+				else
+					break;
+				num++;
+			}
+			if (code > 0 && code < 256)
+				*d++ = code.u8[0];
+		}
+		else
+			*d++ = *s;
+
+		s = semi + 1;
+	}
+
+	*d = 0;
+}
+
+U8 *HTMLAttrGet(U8 *tag_buf, U8 *attr_name)
+{
+	U8 *pos, *end, *val_start, *val;
+	I64 len;
+
+	pos = StrIMatch(attr_name, tag_buf);
+	if (!pos)
+		return NULL;
+
+	pos += StrLen(attr_name);
+	while (*pos == ' ' || *pos == '\t' || *pos == '\n' || *pos == '\r')
+		pos++;
+
+	if (*pos != '=')
+		return NULL;
+
+	pos++;
+	while (*pos == ' ' || *pos == '\t')
+		pos++;
+
+	if (*pos == '"')
+	{
+		pos++;
+		end = StrFirstOcc(pos, "\"");
+		if (!end)
+			return StrNew(pos);
+		len = end - pos;
+		val = MAlloc(len + 1);
+		MemCopy(val, pos, len);
+		val[len] = 0;
+		return val;
+	}
+
+	if (*pos == '\'')
+	{
+		pos++;
+		end = StrFirstOcc(pos, "'");
+		if (!end)
+			return StrNew(pos);
+		len = end - pos;
+		val = MAlloc(len + 1);
+		MemCopy(val, pos, len);
+		val[len] = 0;
+		return val;
+	}
+
+	val_start = pos;
+	while (*pos && *pos != ' ' && *pos != '\t' && *pos != '>')
+		pos++;
+
+	len = pos - val_start;
+	val = MAlloc(len + 1);
+	MemCopy(val, val_start, len);
+	val[len] = 0;
+	return val;
+}
+
+U8 *HTMLTagNameGet(U8 *tag_buf, Bool *closing)
+{
+	U8 *name, *p;
+	I64 i;
+
+	if (closing)
+		*closing = FALSE;
+
+	if (!tag_buf || !*tag_buf)
+		return NULL;
+
+	p = tag_buf;
+	while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')
+		p++;
+
+	if (*p == '/')
+	{
+		if (closing)
+			*closing = TRUE;
+		p++;
+	}
+
+	name = MAlloc(32);
+	i = 0;
+	while (*p && i < 31)
+	{
+		if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+			(*p >= '0' && *p <= '9'))
+			name[i++] = *p;
+		else
+			break;
+		p++;
+	}
+	name[i] = 0;
+	return name;
+}
+
+U0 HTMLCollapseWhitespace(U8 *buf)
+{
+	U8 *r, *w;
+	Bool space = FALSE;
+
+	r = w = buf;
+	while (*r)
+	{
+		if (*r == ' ' || *r == '\t' || *r == '\r')
+		{
+			if (!space && w > buf && w[-1] != '\n')
+			{
+				*w++ = ' ';
+				space = TRUE;
+			}
+		}
+		else if (*r == '\n')
+		{
+			*w++ = '\n';
+			space = FALSE;
+		}
+		else
+		{
+			*w++ = *r;
+			space = FALSE;
+		}
+		r++;
+	}
+
+	if (w > buf && w[-1] == ' ')
+		w--;
+	*w = 0;
+}
+
+U0 HTMLTextChunkOut(U8 *text, Bool dol_doc, Bool link_open, U8 *link_href)
+{
+	U8 decoded[4096];
+
+	if (!text || !*text)
+		return;
+
+	HTMLEntityDecode(decoded, text, sizeof(decoded));
+	HTMLCollapseWhitespace(decoded);
+
+	if (!*decoded)
+		return;
+
+	if (dol_doc && link_open && link_href)
+	{
+		U8 *macro;
+
+		macro = MStrPrint("$$MA,T=\"%$$Q\",LM=\"BrowserGo(\\\"%s\\\");\"$$",
+			decoded, link_href);
+		"%s", macro;
+		Free(macro);
+	}
+	else if (dol_doc)
+		HTMLPrintEscaped(decoded, TRUE);
+	else if (link_open && link_href)
+	{
+		"[";
+		HTMLPrintEscaped(decoded, FALSE);
+		"](";
+		HTMLPrintEscaped(link_href, FALSE);
+		")";
+	}
+	else
+		HTMLPrintEscaped(decoded, FALSE);
+}
+
+I64 HTMLToTextRender(U8 *html, CBrowserURL *base, Bool dol_doc)
+{
+	U8	*pos, *tag_name, *href = NULL, *skip_tag = NULL;
+	U8	 text_buf[4096];
+	I64	 text_len, skip_depth = 0, in_link = 0, tag_i;
+	Bool closing;
+	U8	 tag_buf[512];
+
+	if (!html)
+		return -1;
+
+	pos = html;
+	text_len = 0;
+	text_buf[0] = 0;
+	skip_tag = NULL;
+	href = NULL;
+
+	while (*pos)
+	{
+		if (*pos == '<')
+		{
+			if (text_len > 0)
+			{
+				text_buf[text_len] = 0;
+				HTMLTextChunkOut(text_buf, dol_doc, in_link, href);
+				text_len = 0;
+				text_buf[0] = 0;
+			}
+
+			tag_i = 0;
+			tag_buf[tag_i++] = '<';
+			pos++;
+			while (*pos && *pos != '>' && tag_i < sizeof(tag_buf) - 1)
+				tag_buf[tag_i++] = *pos++;
+			if (*pos == '>')
+				pos++;
+			tag_buf[tag_i] = 0;
+
+			tag_name = HTMLTagNameGet(tag_buf + 1, &closing);
+
+			if (skip_depth > 0)
+			{
+				if (!closing && tag_name && skip_tag && !StrICompare(tag_name, skip_tag))
+					skip_depth++;
+				else if (closing && tag_name && skip_tag && !StrICompare(tag_name, skip_tag))
+				{
+					skip_depth--;
+					if (skip_depth == 0)
+					{
+						Free(skip_tag);
+						skip_tag = NULL;
+					}
+				}
+			}
+			else if (tag_name && HTMLTagIsSkip(tag_name))
+			{
+				if (!closing)
+				{
+					skip_tag = StrNew(tag_name);
+					skip_depth = 1;
+				}
+			}
+			else if (!closing && tag_name && !StrICompare(tag_name, "a"))
+			{
+				U8 *raw_href;
+
+				Free(href);
+				raw_href = HTMLAttrGet(tag_buf, "href");
+				if (raw_href && base)
+				{
+					href = BrowserURLResolve(raw_href, base);
+					Free(raw_href);
+				}
+				else
+					href = raw_href;
+				in_link = href != NULL;
+			}
+			else if (closing && tag_name && !StrICompare(tag_name, "a"))
+			{
+				in_link = 0;
+				Free(href);
+				href = NULL;
+			}
+			else if (tag_name && HTMLTagIsBlock(tag_name))
+				"\n";
+
+			Free(tag_name);
+			Yield;
+			continue;
+		}
+
+		if (skip_depth > 0)
+		{
+			pos++;
+			continue;
+		}
+
+		if (text_len < sizeof(text_buf) - 1)
+			text_buf[text_len++] = *pos;
+		else
+		{
+			text_buf[text_len] = 0;
+			HTMLTextChunkOut(text_buf, dol_doc, in_link, href);
+			text_len = 0;
+		}
+
+		pos++;
+	}
+
+	if (text_len > 0)
+	{
+		text_buf[text_len] = 0;
+		HTMLTextChunkOut(text_buf, dol_doc, in_link, href);
+	}
+
+	Free(href);
+	Free(skip_tag);
+	return 0;
+}
+
+I64 HTMLFileToDoc(U8 *html_path, CDoc *doc, CBrowserURL *base)
+{
+	U8	*html;
+	I64	 size;
+
+	html = FileRead(html_path, &size);
+	if (!html)
+		return BROWSER_ERR_FILE;
+
+	DocClear(doc);
+	DocPrint(doc, "$$FG,15$$");
+	HTMLToTextRender(html, base, TRUE);
+	DocPrint(doc, "$$FG$$");
+	Free(html);
+	return BROWSER_ERR_NONE;
+}
+
+public I64 HTMLFileToPlain(U8 *html_path, CBrowserURL *base)
+{
+	U8	*html;
+	I64	 size, res;
+
+	html = FileRead(html_path, &size);
+	if (!html)
+		return BROWSER_ERR_FILE;
+
+	HTMLToTextRender(html, base, FALSE);
+	"\n";
+	Free(html);
+	return BROWSER_ERR_NONE;
+}

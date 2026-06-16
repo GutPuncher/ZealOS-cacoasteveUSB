@@ -1,0 +1,41 @@
+/* ZealOS Text Browser ΓÇö full entry (HTTP + UI; loads net stack)
+   Public Domain */
+
+#exe {Cd(__DIR__);};
+
+#ifndef BROWSER_NET_LOADED
+#define BROWSER_NET_LOADED
+#include "../../Load"
+#exe {Cd(__DIR__);};
+#endif
+
+#define BROWSER_LOADED
+
+#exe {Cd(__DIR__);};
+#include "Browser.HH"
+#include "URL"
+#include "HTTPClient"
+#include "HTMLText"
+#include "BrowserLoad"
+#include "HttpGet"
+#include "Browser"
+
+public U0 BrowserTestLocal()
+{
+	BrowserLoadPlain("file:/Home/Net/Programs/Browser/TestFixtures/Sample.HTML");
+}
+
+DocMax;
+"\n\nZealOS Text Browser loaded.\n\n"
+"$$FG,2$BrowserTestLocal();$FG$\n"
+"  Test with local HTML fixture (no network).\n\n"
+"$$FG,2$HttpGet(\"http://example.com/\");$FG$\n"
+"  Fetch a page and print stripped text to the console.\n\n"
+"$$FG,2$Browser(\"file:/Home/Net/Programs/Browser/TestFixtures/Sample.HTML\");$FG$\n"
+"  Open the interactive text browser.\n\n"
+"$$FG,2$Browser();$FG$\n"
+"  Open browser and enter a URL at the prompt.\n\n"
+"Requires networking for remote HTTP:\n"
+"  #include \"C:/Home/Net/Start.ZC\"\n\n"
+"Local-only (no net stack): #include \"RunLocal.ZC\"\n\n"
+"See $LK,\"Browser.DD\",A=\"FI:::/Home/Net/Programs/Browser/Browser.DD\"$\n\n";

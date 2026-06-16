@@ -1,0 +1,24 @@
+/* ZealOS Text Browser ΓÇö local-only entry (no net stack)
+   Public Domain */
+
+#exe {Cd(__DIR__);};
+
+#define BROWSER_LOCAL_ONLY
+#define BROWSER_LOADED
+
+#include "Browser.HH"
+#include "URL"
+#include "HTMLText"
+#include "BrowserLoad"
+
+public U0 BrowserTestLocal()
+{
+	BrowserLoadPlain("file:/Home/Net/Programs/Browser/TestFixtures/Sample.HTML");
+}
+
+"\n\nZealOS Text Browser (local) loaded.\n\n"
+"  BrowserTestLocal();\n"
+"    Test with local HTML fixture (no network).\n\n"
+"For HTTP, after networking is up:\n"
+"  #include \"C:/Home/Net/Start.ZC\"\n"
+"  #include \"Run.ZC\"\n\n";

@@ -1,3 +1,6 @@
+#ifndef ZEAL_NET_STACK_LOADED
+#define ZEAL_NET_STACK_LOADED
+
 Cd(__DIR__);;
 #include "Utilities/Net.HH"
 
@@ -25,3 +28,5 @@ Cd(__DIR__);;
 #include "Protocols/DHCP"
 
 #include "Utilities/NetHandler" // needs IPV4, UDP, ICMP
+
+#endif

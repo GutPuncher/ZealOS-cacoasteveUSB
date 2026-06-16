@@ -1,0 +1,22 @@
+/* CLI HTTP text fetch for ZealOS Browser
+   Public Domain */
+
+#ifndef BROWSER_LOADED
+#include "Browser.HH"
+#endif
+
+#ifndef BROWSER_LOAD_MODULE
+#include "BrowserLoad"
+#endif
+
+public I64 HttpGet(U8 *url)
+{
+	if (!url || !*url)
+	{
+		PrintErr("Usage: HttpGet(\"http://host/path\");\n");
+		return BROWSER_ERR_PARSE;
+	}
+
+	"$$FG,2$$Fetching %s$$FG$$\n\n", url;
+	return BrowserLoadPlain(url);
+}
